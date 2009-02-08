@@ -1,0 +1,30 @@
+Yay! rbIRCd is *finally* going on github. It's been, what, 3 days that haven't been version controlled?
+
+Credits to Ruby for the 1337 OOP.
+Written by danopia.
+Test server MAY be up on danopia.no-ip.org (use prt 7331 and join #botters)
+
+Implemented commands:
+- NICK - no validation
+- USER
+- WHOIS
+- JOIN - no validation, won't take lists
+- PART - no message yet
+- QUIT - no message yet
+- PRIVMSG - needs to be uppercased (the command)
+- NOTICE - see PRIVMSG
+- USERHOST
+- PING
+- PONG - lulz, it doesn't do anything anyway
+- NAMES
+
+Soon to be done:
+- Nick/channel name validation
+- Opering
+- Ping timeouts
+- Join channel list
+- Better IRC parser (for part, quit, privmsg, and notice)
+- Modes
+- Topics
+- Config file
+
