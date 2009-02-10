@@ -4,95 +4,51 @@
 #require 'daemons'
 
 #
-# Copyright (C) 2001 John W. Small All Rights Reserved
-#
-# Author::        John W. Small
-# Documentation:: Gavin Sinclair
-# Licence::       Freeware.
-#
-# See the class GServer for documentation.
+# Most of the IRCServer class is from GServer
+# GServer is copyright (C) 2001 John W. Small
 #
 
-require "socket"
-require "thread"
+require 'socket'
+require 'thread'
+require 'yaml'
 
 #
-# GServer implements a generic server, featuring thread pool management,
-# simple logging, and multi-server management.  See HttpServer in 
-# <tt>xmlrpc/httpserver.rb</tt> in the Ruby standard library for an example of
-# GServer in action.
+# IRCServer implements an irc server, featuring thread pool management,
+# simple logging, and multi-server management.
 #
-# Any kind of application-level server can be implemented using this class.
-# It accepts multiple simultaneous connections from clients, up to an optional
-# maximum number.  Several _services_ (i.e. one service per TCP port) can be
+# Several _services_ (i.e. one service per TCP port) can be
 # run simultaneously, and stopped at any time through the class method
-# <tt>GServer.stop(port)</tt>.  All the threading issues are handled, saving
+# <tt>IRCServer.stop(port)</tt>.  All the threading issues are handled, saving
 # you the effort.  All events are optionally logged, but you can provide your
 # own event handlers if you wish.
 #
 # === Example
 #
-# Using GServer is simple.  Below we implement a simple time server, run it,
-# query it, and shut it down.  Try this code in +irb+:
-#
-#   require 'gserver'
-#
-#   #
-#   # A server that returns the time in seconds since 1970.
-#   # 
-#   class TimeServer < GServer
-#     def initialize(port=10001, *args)
-#       super(port, *args)
-#     end
-#     def serve(io)
-#       io.puts(Time.now.to_i)
-#     end
-#   end
+# Using IRCServer is simple.  Below we run an IRC server.  Try this code:
 #
 #   # Run the server with logging enabled (it's a separate thread).
-#   server = TimeServer.new
+#   server = IRCServer.new
 #   server.audit = true                  # Turn logging on.
 #   server.start 
 #
-#   # *** Now point your browser to http://localhost:10001 to see it working ***
+#   # *** Now point your IRC client to localhost:6667 to see it working ***
 #
 #   # See if it's still running. 
-#   GServer.in_service?(10001)           # -> true
+#   GServer.in_service?(6667)            # -> true
 #   server.stopped?                      # -> false
 #
 #   # Shut the server down gracefully.
 #   server.shutdown
 #   
 #   # Alternatively, stop it immediately.
-#   GServer.stop(10001)
+#   IRCServer.stop(6667)
 #   # or, of course, "server.stop".
-#
-# All the business of accepting connections and exception handling is taken
-# care of.  All we have to do is implement the method that actually serves the
-# client.
-#
-# === Advanced
-#
-# As the example above shows, the way to use GServer is to subclass it to
-# create a specific server, overriding the +serve+ method.  You can override
-# other methods as well if you wish, perhaps to collect statistics, or emit
-# more detailed logging.
-#
-#   connecting
-#   disconnecting
-#   starting
-#   stopping
-#
-# The above methods are only called if auditing is enabled.
-#
-# You can also override +log+ and +error+ if, for example, you wish to use a
-# more sophisticated logging system.
 #
 class IRCServer
 
   DEFAULT_HOST = "0.0.0.0"
 
-  @@services = {}   # Hash of opened ports, i.e. services
+  @@services = {}   # Hash of opened services
   @@servicesMutex = Mutex.new
 
   def IRCServer.stop(port, host = DEFAULT_HOST)
@@ -127,7 +83,7 @@ class IRCServer
   end
 
   attr_reader :port, :host, :maxConnections
-  attr_accessor :stdlog, :audit, :debug, :threads, :clients, :channels
+  attr_accessor :stdlog, :audit, :debug, :threads, :clients, :channels, :name
 
   def connecting(client)
     addr = client.addr
@@ -293,18 +249,30 @@ class IRCChannel
 		@topic_timestamp = nil
 	end
 	
+	def send_to_all(msg)
+		users.each do |user|
+			user.puts msg
+		end
+	end
+	def send_to_all_except(nontarget, msg)
+		users.each do |user|
+			user.puts msg unless user == nontarget
+		end
+	end
 	
 end
 
 class IRCClient
-  attr_reader :nick, :ident, :realname, :io, :addr, :ip, :host
-  #attr_accessor :stdlog, :audit, :debug
+  attr_reader :nick, :ident, :realname, :io, :addr, :ip, :host, :dead
+  attr_accessor :opered
   
 	def initialize(io)
 		@nick = '*'
 		@ident = nil
 		@realname = nil
 		@io = io
+		@dead = false
+		@opered = false
 		
 		@addr = io.peeraddr
     @ip = @addr[3]
@@ -321,27 +289,34 @@ class IRCClient
 		puts ":#{@nick} MODE #{@nick} :+iwx"
 	end
  
-	def close(reason = 'Connection reset by peer')
+	def close(reason = 'Client quit')
 		$server.log_nick(@nick, "User disconnected (#{reason}).")
 		
-		updated_users = [self]
-		$server.channels.each do |channel|
-			if channel.users.include?(self)
-				channel.users.each do |user|
-					if !(updated_users.include?(user))
-						user.puts ":#{path} QUIT :" + reason
-						updated_users << user
+		if !@dead
+			updated_users = [self]
+			$server.channels.each do |channel|
+				if channel.users.include?(self)
+					channel.users.each do |user|
+						if !(updated_users.include?(user))
+							user.puts ":#{path} QUIT :" + reason
+							updated_users << user
+						end
 					end
+					channel.users.delete(self)
 				end
-				channel.users.delete(self)
 			end
+			@dead = true
 		end
 		
 		begin
-			puts("ERROR :Closing Link: #{@nick}[#{@ip}] (#{reason})")
+			puts "ERROR :Closing Link: #{@nick}[#{@ip}] (#{reason})"
 			@io.close
 		rescue
 		end
+	end
+	def kill(killer, reason = 'Client quit')
+		puts(":#{killer.path} KILL #{@nick} :pentagon.danopia.net!#{killer.host}!#{killer.nick} (#{reason})")
+		close reason
 	end
 	
 	def puts(msg)
@@ -465,6 +440,30 @@ class IRCClient
 						check_registration
 					end
 					
+				when 'oper'
+					name = raw_args[1].downcase
+					pass = raw_args[2]
+					
+					$config['opers'].each do |oper|
+						if oper['login'].downcase == name and oper['pass'] == pass
+							@opered = true
+						end
+					end
+					puts ":pentagon.danopia.net 381 #{@nick} :You have entered... the Twilight Zone!" if @opered
+					puts ":pentagon.danopia.net 491 #{@nick} :Only few of mere mortals may try to enter the twilight zone" unless @opered
+					
+				when 'kill'
+					if @opered
+						target = $server.find_nick(raw_args[1])
+						if target == nil
+							puts ":pentagon.danopia.net 401 #{@nick} #{raw_args[1]} :No such nick/channel"
+						else
+							target.kill self, "Killed (#{@nick} ())"
+						end
+					else
+						puts ":pentagon.danopia.net 481 #{@nick} :Permission Denied- You do not have the correct IRC operator privileges"
+					end
+					
 				when 'whois'
 					target = $server.find_nick(raw_args[1])
 					if target == nil
@@ -548,8 +547,13 @@ class IRCClient
   end
 end
 
+# Load the config
+$config = YAML.load(File.open('rbircd.conf'))
+
 # Daemons.daemonize
 $server = IRCServer.new(7331, '0.0.0.0')
+$server.name = $config['server-name']
+
 $server.audit = true
 $server.debug = true
 $server.start

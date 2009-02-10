@@ -1,0 +1,50 @@
+----------------------- RBIRCD MOTD INFORMATION -----------------------
+
+As you may have noticed, rbIRCd uses a... different... MOTD setup. The
+default setting currently is:
+
+motd-file: rbIRCd.motd
+#motd-program: echo Welcome, %n!
+
+That sets up a conventional MOTD (suggested for large networks).
+However, uncomment the second line and comment the first and and BAM!
+you are using a dynamic MOTD.
+
+This may seem strange to people who haven't used rbIRCd before. What
+happens is, rbIRCd will take the command specified and run it for
+_each_and_every_ connecting client. Although this may not be desired
+for static MOTDs, this allows you to customize every users' MOTD. For
+example:
+
+motd: ruby motd.rb %n
+
+would run motd.rb in Ruby with the nick of the connecting person as the
+argument. This allows you to do a simple dynamic MOTD, perhaps with
+a ruby script that cyborg's the user's nick or perhaps a simple sed.
+
+The following params are parsed:
+%%	A literal '%'
+-----------------------------------------------------------------------
+%n	User's nick
+%i	User's IP (in quad-dot form, i.e. 4.2.2.2)
+%h	User's hostname (as per rDNS; same is %i if no rDNS record)
+%u	User's ident (the middle part in a *!*@* format)
+%r	User's realname (as shown in a /whois)
+-----------------------------------------------------------------------
+%s	Server's hostname (i.e. rbircd.danopia.net)
+%d	Server's description (i.e. rbIRCd Server (US))
+%n	Name of the network (i.e. rbIRCd)
+%t	Server time
+%T	Server uptime (in the format returned by Unreal's /stats u)
+-----------------------------------------------------------------------
+%p	Port that the client is connected to ("+" for SSL when/if it works)
+%P	List of all non-ssl listening ports (i.e. "6667, 6668" without ")
+%S	List of all ssl listening ports (i.e. "+6697, +6698" without ")
+-----------------------------------------------------------------------
+
+In addition, rbIRCd checks the return value of the command. If the
+motd command exits with anything other than 0, the client is killed.
+Soon there will be a seperate config value to enable this and have it
+disabled by default. This can be used to add IP blocking or
+blacklisting in other languages such as bash or C, as well as other
+selective server block tricks.
