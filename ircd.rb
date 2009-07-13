@@ -85,46 +85,45 @@ class IRCServer
   attr_reader :port, :host, :maxConnections
   attr_accessor :stdlog, :audit, :debug, :threads, :clients, :channels, :name
 
+
   def connecting(client)
     addr = client.addr
-    log("#{@host}:#{@port} client:#{addr[1]} " +
-        "#{addr[2]}<#{addr[3]}> connect")
+    log "#{@host}:#{@port} client:#{addr[1]} #{addr[2]}<#{addr[3]}> connect"
     true
   end
 
   def disconnecting(clientPort)
-    log("#{@host}:#{@port} " +
-      "client:#{clientPort} disconnect")
+    log "#{@host}:#{@port} client:#{clientPort} disconnect"
   end
-
   protected :connecting, :disconnecting
 
+
   def starting()
-    log("#{@host}:#{@port} start")
+    log "#{@host}:#{@port} start"
   end
 
   def stopping()
-    log("#{@host}:#{@port} stop")
+    log "#{@host}:#{@port} stop"
   end
-
   protected :starting, :stopping
 
+
   def error(detail)
-    log(detail.backtrace.join("\n"))
+    log detail.backtrace.join("\n")
   end
 
   def log(msg)
     if @stdlog
-      @stdlog.puts("[#{Time.new.ctime}] %s" % msg)
+      @stdlog.puts "[#{Time.new.ctime}] %s" % msg
       @stdlog.flush
     end
   end
+  protected :error, :log
+
 
   def log_nick(nick, msg)
-    log("#{@host}:#{@port} #{nick}\t%s" % msg)
+    log "#{@host}:#{@port} #{nick}\t%s" % msg
   end
-
-  protected :error, :log
 
   def initialize(port, host = DEFAULT_HOST, maxConnections = 20,
     stdlog = $stderr, audit = false, debug = false)
@@ -260,6 +259,14 @@ class IRCChannel
 		end
 	end
 	
+	def topic=(topic)
+		@topic = topic
+		@topic_timestamp = Time.now
+	end
+	def topic_author=(author)
+		@topic_author = author
+	end
+	
 end
 
 class IRCClient
@@ -278,14 +285,15 @@ class IRCClient
     @ip = @addr[3]
 		@host = @addr[2]
 		
-    io.puts ":pentagon.danopia.net NOTICE AUTH :*** Looking up your hostname...\n:pentagon.danopia.net NOTICE AUTH :*** Found your hostname"
+    puts ":#{$server.name} NOTICE AUTH :*** Looking up your hostname..."
+    puts ":#{$server.name} NOTICE AUTH :*** Found your hostname"
 	end
 
 	def is_registered?
 		@nick != '*' and @ident != nil
 	end
 	def check_registration()
-		send_motd if is_registered?
+		send_welcome_flood if is_registered?
 		puts ":#{@nick} MODE #{@nick} :+iwx"
 	end
  
@@ -315,7 +323,11 @@ class IRCClient
 		end
 	end
 	def kill(killer, reason = 'Client quit')
-		puts(":#{killer.path} KILL #{@nick} :pentagon.danopia.net!#{killer.host}!#{killer.nick} (#{reason})")
+		puts(":#{killer.path} KILL #{@nick} :#{$server.name}!#{killer.host}!#{killer.nick} (#{reason})")
+		close reason
+	end
+	def skill(reason = 'Client quit')
+		puts(":#{$server.name} KILL #{@nick} :#{$server.name} (#{reason})")
 		close reason
 	end
 	
@@ -323,79 +335,121 @@ class IRCClient
 		@io.puts msg
 	end
 	
+	def put_snumeric(numeric, text)
+		puts [':' + $server.name, numeric, @nick, text].join(' ')
+	end
+	
 	def path
 		"#{@nick}!#{@ident}@#{@host}"
 	end
 	
+	def send_welcome_flood()
+		put_snumeric '001', ":Welcome to the #{Config.network_name} IRC Network #{path}"
+		put_snumeric '002', ":Your host is #{$server.name}, running version RubyIRCd0.1.0"
+		put_snumeric '003', ":This server was created Tue Dec 23 2008 at 15:18:59 EST"
+		put_snumeric '004', "#{$server.name} RubyIRCd0.1.0 iowghraAsORTVSxNCWqBzvdHtGp lvhopsmntikrRcaqOALQbSeIKVfMCuzNTGj"
+
+		send_version
+		send_lusers
+		send_motd
+	end
+	
+	def send_version(detailed=false)
+		if detailed
+			put_snumeric 351, "RubyIRCd0.1.0. #{$server.name} :FhiXeOoZE [Linux box 2.6.18-128.1.1.el5.028stab062.3 #1 SMP Sun May 10 18:54:51 MSD 2009 i686=2309]"
+			puts ":#{$server.name} NOTICE #{@nick} :OpenSSL 0.9.8k 25 Mar 2009"
+			puts ":#{$server.name} NOTICE #{@nick} :zlib 1.2.3"
+			puts ":#{$server.name} NOTICE #{@nick} :libcurl/7.19.4 GnuTLS/2.6.6 zlib/1.2.3 c-ares/1.6.0 libssh2/0.18"
+		end
+		put_snumeric '005', 'NAMESX SAFELIST HCN MAXCHANNELS=10 CHANLIMIT=#:10 MAXLIST=b:60,e:60,I:60 NICKLEN=30 CHANNELLEN=32 TOPICLEN=307 KICKLEN=307 AWAYLEN=307 MAXTARGETS=20 WALLCHOPS :are supported by this server'
+		put_snumeric '005', "WATCH=128 SILENCE=15 MODES=12 CHANTYPES=# PREFIX=(qaohv)~&@%+ CHANMODES=beI,kfL,lj,psmntirRcOAQKVCuzNSMTG NETWORK=#{Config.network_name.gsub(' ', '-')} CASEMAPPING=ascii EXTBAN=~,cqnr ELIST=MNUCT STATUSMSG=~&@%+ EXCEPTS INVEX :are supported by this server"
+		put_snumeric '005', 'CMDS=KNOCK,MAP,DCCALLOW,USERIP :are supported by this server'
+	end
+	
+	def send_lusers
+		put_snumeric 251, ":There are 1 users and 2 invisible on 1 servers"
+		put_snumeric 252, "1 :operator(s) online"
+		put_snumeric 254, "4 :channels formed"
+		put_snumeric 255, ":I have 3 clients and 0 servers"
+		put_snumeric 265, ":Current Local Users: 3  Max: 9"
+		put_snumeric 266, ":Current Global Users: 3  Max: 5"
+	end
+
+	def get_motd
+		motd = nil
+		begin
+			filename = Config.motd_file
+			return File.new(filename).read
+		rescue
+		end
+		
+		begin
+			program = Config.motd_program
+			program = program.gsub('%n', @nick.gsub(/([^a-zA-Z0-9])/, '\\\1'))
+			return `#{program}` # TODO: Do it the right way
+		rescue
+		end
+		
+		nil
+	end
+	
+	def send_motd
+		motd = get_motd
+		
+		if motd
+			put_snumeric 375, ":- #{$server.name} Message of the Day -"
+			motd.each_line do |line|
+				put_snumeric 372, ':- ' + line
+			end
+			put_snumeric 376, ':End of /MOTD command.'
+		else
+			put_snumeric 422, ':MOTD File is missing'
+		end
+	end
+	
+	def join(channel)
+		return if channel.users.include?(self)
+		channel.users << self
+		channel.users.each do |user|
+			user.puts ":#{path} JOIN :#{channel.name}"
+		end
+		send_topic(channel)
+		send_names(channel)
+		
+		#<< JOIN #bitcast
+		#>> :danopia!danopia@danopia::EighthBit::staff JOIN :#bitcast
+		#<< MODE #bitcast
+		#<< WHO #bitcast
+		#>> :Silicon.EighthBit.net 332 danopia #bitcast :Interested in a slot for Episode 1? See http://is.gd/1vAro for available slots | Think you could do one of these topics on an upcoming episode? http://is.gd/1vAtA  - Let us know!
+		#>> :Silicon.EighthBit.net 333 danopia #bitcast CodeBlock 1247378633
+		#>> :Silicon.EighthBit.net 353 danopia = #bitcast :danopia nixeagle @CodeBlock @ChanServ 
+		#>> :Silicon.EighthBit.net 366 danopia #bitcast :End of /NAMES list.
+		#>> :Silicon.EighthBit.net 324 danopia #bitcast +nt 
+		#>> :Silicon.EighthBit.net 329 danopia #bitcast 1247378376
+		#>> :Silicon.EighthBit.net 352 danopia #bitcast danopia danopia::EighthBit::staff Silicon.EighthBit.net danopia Hr* :0 Daniel Danopia
+		#>> :Silicon.EighthBit.net 352 danopia #bitcast nixeagle 9F3ADEED.AC9A3767.180762F4.IP Silicon.EighthBit.net nixeagle Gr* :0 James
+		#>> :Silicon.EighthBit.net 352 danopia #bitcast CodeBlock CodeBlock::EighthBit::staff Platinum.EighthBit.net CodeBlock Hr*@ :1 CodeBlock
+	end
+	def send_topic(channel)
+		return unless channel.topic
+		put_snumeric 332, channel.name + ' :' + channel.topic
+		put_snumeric 333, "#{channel.name} #{channel.topic_author} 1247378633"
+	end
 	def send_names(channel)
 		nicks = []
 		channel.users.each do |user|
 			nicks << user.nick
 		end
-		puts ":pentagon.danopia.net 353 #{@nick} = #{channel.name} :#{nicks.join(' ')}"
-		puts ":pentagon.danopia.net 366 #{@nick} #{channel.name} :End of /NAMES list."
+		put_snumeric 353, "= #{channel.name} :#{nicks.join(' ')}"
+		put_snumeric 366, channel.name + ' :End of /NAMES list.'
 	end
 	
-	def send_motd()
-		puts ":pentagon.danopia.net 001 #{@nick} :Welcome to the FBI Pentagon IRC Network #{path}
-:pentagon.danopia.net 002 #{@nick} :Your host is pentagon.danopia.net, running version Unreal3.2.7
-:pentagon.danopia.net 003 #{@nick} :This server was created Tue Dec 23 2008 at 15:18:59 EST
-:pentagon.danopia.net 004 #{@nick} pentagon.danopia.net RubyIRCd0.1.0 iowghraAsORTVSxNCWqBzvdHtGp lvhopsmntikrRcaqOALQbSeIKVfMCuzNTGj
-:pentagon.danopia.net 005 #{@nick} NAMESX SAFELIST HCN MAXCHANNELS=10 CHANLIMIT=#:10 MAXLIST=b:60,e:60,I:60 NICKLEN=30 CHANNELLEN=32 TOPICLEN=307 KICKLEN=307 AWAYLEN=307 MAXTARGETS=20 WALLCHOPS :are supported by this server
-:pentagon.danopia.net 005 #{@nick} WATCH=128 SILENCE=15 MODES=12 CHANTYPES=# PREFIX=(qaohv)~&@%+ CHANMODES=beI,kfL,lj,psmntirRcOAQKVCuzNSMTG NETWORK=FBI-Pentagon CASEMAPPING=ascii EXTBAN=~,cqnr ELIST=MNUCT STATUSMSG=~&@%+ EXCEPTS INVEX :are supported by this server
-:pentagon.danopia.net 005 #{@nick} CMDS=KNOCK,MAP,DCCALLOW,USERIP :are supported by this server
-:pentagon.danopia.net 251 #{@nick} :There are 1 users and 2 invisible on 1 servers
-:pentagon.danopia.net 252 #{@nick} 1 :operator(s) online
-:pentagon.danopia.net 254 #{@nick} 4 :channels formed
-:pentagon.danopia.net 255 #{@nick} :I have 3 clients and 0 servers
-:pentagon.danopia.net 265 #{@nick} :Current Local Users: 3  Max: 9
-:pentagon.danopia.net 266 #{@nick} :Current Global Users: 3  Max: 5
-:pentagon.danopia.net 375 #{@nick} :- pentagon.danopia.net Message of the Day - 
-:pentagon.danopia.net 372 #{@nick} :- 24/12/2008 14:53
-:pentagon.danopia.net 372 #{@nick} :- 4FFFFFFFFFFFFFFFFFFFFFFFF3BBBBBBBBBBBBBBBBBB   2IIIIIIIIIIIIIIIII
-:pentagon.danopia.net 372 #{@nick} :- 4F::::::::::::::::::::::F3B:::::::::::::::::B  2I:::::::::::::::I
-:pentagon.danopia.net 372 #{@nick} :- 4F::::::::::::::::::::::F3B:::::::BBBBBB:::::B 2I:::::::::::::::I
-:pentagon.danopia.net 372 #{@nick} :- 4FF:::::::FFFFFFFFFF::::F3BB::::::B     B:::::B2IIIII:::::::IIIII
-:pentagon.danopia.net 372 #{@nick} :- 4  F::::::F        FFFFFF3  B:::::B     B:::::B2     I:::::I  
-:pentagon.danopia.net 372 #{@nick} :- 4  F::::::F              3  B:::::B     B:::::B2     I:::::I  
-:pentagon.danopia.net 372 #{@nick} :- 4  F:::::::FFFFFFFFFFF   3  B:::::BBBBBB:::::B 2     I:::::I  
-:pentagon.danopia.net 372 #{@nick} :- 4  F:::::::::::::::::F   3  B::::::::::::::BB  2     I:::::I  
-:pentagon.danopia.net 372 #{@nick} :- 4  F:::::::::::::::::F   3  B:::::BBBBBB:::::B 2     I:::::I  
-:pentagon.danopia.net 372 #{@nick} :- 4  F:::::::FFFFFFFFFFF   3  B:::::B     B:::::B2     I:::::I  
-:pentagon.danopia.net 372 #{@nick} :- 4  F::::::F              3  B:::::B     B:::::B2     I:::::I  
-:pentagon.danopia.net 372 #{@nick} :- 4  F::::::F              3  B:::::B     B:::::B2     I:::::I  
-:pentagon.danopia.net 372 #{@nick} :- 4FF::::::::FF            3BB::::::BBBBBB::::::B2IIIII:::::::IIIII
-:pentagon.danopia.net 372 #{@nick} :- 4F::::::::::F            3B::::::::::::::::::B 2I:::::::::::::::I
-:pentagon.danopia.net 372 #{@nick} :- 4F::::::::::F            3B:::::::::::::::::B  2I:::::::::::::::I
-:pentagon.danopia.net 372 #{@nick} :- 4FFFFFFFFFFFF            3BBBBBBBBBBBBBBBBBB   2IIIIIIIIIIIIIIIII
-:pentagon.danopia.net 372 #{@nick} :- 
-:pentagon.danopia.net 372 #{@nick} :-         .'.
-:pentagon.danopia.net 372 #{@nick} :-       .'   '.                           _                           
-:pentagon.danopia.net 372 #{@nick} :-     .'       '.      ____  _____ ____ _| |_ _____  ____  ___  ____  
-:pentagon.danopia.net 372 #{@nick} :-   .'    .'.    '.   |  _ \\| ___ |  _ (_   _|____ |/ _  |/ _ \\|  _ \\ 
-:pentagon.danopia.net 372 #{@nick} :- .'    .'   '.    '. | |_| | ____| | | || |_/ ___ ( (_| | |_| | | | |
-:pentagon.danopia.net 372 #{@nick} :- \\     \\     /     / |  __/|_____)_| |_| \\__)_____|\\___ |\\___/|_| |_|
-:pentagon.danopia.net 372 #{@nick} :-  \\     \\___/     /  |_|                          (_____|            
-:pentagon.danopia.net 372 #{@nick} :-   \\             /
-:pentagon.danopia.net 372 #{@nick} :-    \\           /
-:pentagon.danopia.net 372 #{@nick} :-     \\_________/
-:pentagon.danopia.net 372 #{@nick} :- 
-:pentagon.danopia.net 372 #{@nick} :- --------------------------------------------------------------------
-:pentagon.danopia.net 372 #{@nick} :- 
-:pentagon.danopia.net 372 #{@nick} :- main message relay of FBI version control informant.
-:pentagon.danopia.net 372 #{@nick} :- beware! this is a private server!
-:pentagon.danopia.net 372 #{@nick} :- 
-:pentagon.danopia.net 372 #{@nick} :- run by danopia
-:pentagon.danopia.net 376 #{@nick} :End of /MOTD command.
-"
-	end
-	
-  def serve()
+  def serve
 		loop do
 			raw = @io.gets
 			if raw == '' or raw == nil
 				puts "FAILURE"
-			$server.log_nick(@nick, "FAILURE")
+				$server.log_nick(@nick, "FAILURE")
 			end
 			raw_args = raw.split(' ')
 			command = raw_args[0].downcase
@@ -404,9 +458,9 @@ class IRCClient
 			
 				when 'user'
 					if raw_args.size < 5
-						puts ":pentagon.danopia.net 461 #{@nick} USER :Not enough parameters"
+						put_snumeric 461, 'USER :Not enough parameters'
 					elsif is_registered?
-						puts ":pentagon.danopia.net 462 #{@nick} :You may not reregister"
+						put_snumeric 462, ':You may not reregister'
 					else
 						@ident = raw_args[1]
 						@realname = raw_args[4]
@@ -415,9 +469,9 @@ class IRCClient
 			
 				when 'nick'
 					if raw_args.size < 2 || raw_args[1].size < 1
-						puts ":pentagon.danopia.net 431 #{@nick} :No nickname given"
+						put_snumeric 431, ':No nickname given'
 					elsif $server.find_nick(raw_args[1])
-						puts ":pentagon.danopia.net 433 #{@nick} #{raw_args[1]} :Nickname is already in use."
+						put_snumeric 433, "#{raw_args[1]} :Nickname is already in use."
 					elsif is_registered?
 						newnick = raw_args[1]
 						puts ":#{path} NICK :" + newnick
@@ -444,45 +498,51 @@ class IRCClient
 					name = raw_args[1].downcase
 					pass = raw_args[2]
 					
-					$config['opers'].each do |oper|
+					Config.opers.each do |oper|
 						if oper['login'].downcase == name and oper['pass'] == pass
 							@opered = true
 						end
 					end
-					puts ":pentagon.danopia.net 381 #{@nick} :You have entered... the Twilight Zone!" if @opered
-					puts ":pentagon.danopia.net 491 #{@nick} :Only few of mere mortals may try to enter the twilight zone" unless @opered
+					put_snumeric 381, ':You have entered... the Twilight Zone!' if @opered
+					put_snumeric 491, ':Only few of mere mortals may try to enter the twilight zone' unless @opered
 					
 				when 'kill'
 					if @opered
 						target = $server.find_nick(raw_args[1])
 						if target == nil
-							puts ":pentagon.danopia.net 401 #{@nick} #{raw_args[1]} :No such nick/channel"
+							put_snumeric 401, raw_args[1] + ' :No such nick/channel'
 						else
 							target.kill self, "Killed (#{@nick} ())"
 						end
 					else
-						puts ":pentagon.danopia.net 481 #{@nick} :Permission Denied- You do not have the correct IRC operator privileges"
+						put_snumeric 481, ':Permission Denied- You do not have the correct IRC operator privileges'
 					end
 					
 				when 'whois'
 					target = $server.find_nick(raw_args[1])
 					if target == nil
-						puts ":pentagon.danopia.net 401 #{@nick} #{raw_args[1]} :No such nick/channel"
+						put_snumeric 401, raw_args[1] + ' :No such nick/channel'
 					else
-					puts ":pentagon.danopia.net 311 #{@nick} #{target.nick} #{target.ident} #{target.host} * :#{target.realname}
-:pentagon.danopia.net 378 #{@nick} #{target.nick} :is connecting from *@#{target.addr[2]} #{target.ip}
-:pentagon.danopia.net 312 #{@nick} #{target.nick} pentagon.danopia.net :FBI Informational Backbone Server
-:pentagon.danopia.net 317 #{@nick} #{target.nick} 2 1233972544 :seconds idle, signon time
-:pentagon.danopia.net 318 #{@nick} #{target.nick} :End of /WHOIS list.
-"
+						put_snumeric 311, "#{target.nick} #{target.ident} #{target.host} * :#{target.realname}"
+						put_snumeric 378, "#{target.nick} :is connecting from *@#{target.addr[2]} #{target.ip}"
+						put_snumeric 312, "#{target.nick} #{$server.name} :#{Config.server_desc}"
+						put_snumeric 317, "#{target.nick} 2 1233972544 :seconds idle, signon time"
+						put_snumeric 318, "#{target.nick} :End of /WHOIS list."
 					end
+					
+				when 'version'
+					send_version true # detailed
+				when 'lusers'
+					send_lusers
+				when 'motd'
+					send_motd
 					
 				when 'privmsg', 'notice'
 					target = $server.find_channel(raw_args[1])
 					if target == nil
 						target = $server.find_nick(raw_args[1])
 						if target == nil
-							puts ":pentagon.danopia.net 401 #{@nick} #{raw_args[1]} :No such nick/channel"
+							put_snumeric 401, raw_args[1] + ' :No such nick/channel'
 						else
 							target.puts ":#{path} #{raw}"
 						end
@@ -498,20 +558,14 @@ class IRCClient
 						channel = IRCChannel.new(raw_args[1].downcase)
 						$server.channels << channel
 					end
-					if !(channel.users.include?(self))
-						channel.users << self
-						channel.users.each do |user|
-							user.puts ":#{path} JOIN :#{channel.name}"
-						end
-						send_names(channel)
-					end
+					join channel
 					
 				when 'part'
 					channel = $server.find_channel(raw_args[1])
 					if channel == nil
-						puts ":pentagon.danopia.net 403 #{@nick} #{raw_args[1]} :No such channel"
+						put_snumeric 403, raw_args[1] + ' :No such channel'
 					elsif !(channel.users.include?(self))
-						puts ":pentagon.danopia.net 403 #{@nick} #{raw_args[1]} :No such channel"
+						put_snumeric 403, raw_args[1] + ' :No such channel'
 					else
 						channel.users.each do |user|
 							user.puts ":#{path} PART #{channel.name} :" + 'Leaving'
@@ -524,47 +578,71 @@ class IRCClient
 					send_names(channel)
 					
 				when 'quit'
-					close('Leaving')
+					close 'Leaving'
 					return
 			
 				when 'pong'
 				when 'ping'
 					target = raw_args[1]
-					puts ":pentagon.danopia.net PONG pentagon.danopia.net :#{target}"
+					puts ":#{$server.name} PONG #{$server.name} :#{target}"
 					
 				when 'userhost'
 					target = $server.find_nick(raw_args[1])
 					if target == nil
-						puts ":pentagon.danopia.net 401 #{@nick} #{raw_args[1]} :No such nick/channel"
+						put_snumeric 401, raw_args[1] + ' :No such nick/channel'
 					else
-						puts ":pentagon.danopia.net 302 #{@nick} :#{target.nick}=+#{target.ident}@#{target.ip}"
+						put_snumeric 302, ":#{target.nick}=+#{target.ident}@#{target.ip}"
 					end
 					
 				else
-					puts ":pentagon.danopia.net 421 #{@nick} #{command} :Unknown command"
+					put_snumeric 421, command + ' :Unknown command'
 			end
 		end
   end
 end
 
+class Config
+	def self.load(filename)
+		@yaml = YAML.load(File.open(filename))
+	end
+	
+	# Shorter way to access data
+	def self.method_missing(m, *args, &blck)
+		raise ArgumentError, "wrong number of arguments (#{args.length} for 0)" if args.length > 0
+		raise NoMethodError, "undefined method '#{m}' for #{self}" unless @yaml.has_key?(m.to_s.gsub('_', '-'))
+		@yaml[m.to_s.gsub('_', '-')]
+	end
+end
+
 # Load the config
-$config = YAML.load(File.open('rbircd.conf'))
+Config.load('rbircd.conf')
 
 # Daemons.daemonize
-$server = IRCServer.new(7331, '0.0.0.0')
-$server.name = $config['server-name']
+$server = IRCServer.new(Config.listen_port.to_i, Config.listen_host)
+$server.name = Config.server_name
 
 $server.audit = true
 $server.debug = true
-$server.start
-loop do
-	sleep 60 
+begin
+	$server.start
+	loop do
+		sleep 60 
+		$server.clients.each do |value|
+			begin
+				value.puts 'PING :' + $server.name
+			rescue => detail
+				value.close
+				$server.clients.delete(value)
+			end	
+		end
+	end
+
+ensure
 	$server.clients.each do |value|
 		begin
-			value.puts 'PING :pentagon.danopia.net'
+			value.skill 'Server is going down NOW!'
 		rescue => detail
-			value.close
-			$server.clients.delete(value)
+			$server.clients.clear
 		end	
 	end
 end

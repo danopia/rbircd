@@ -44,7 +44,7 @@ The following params are parsed:
 
 In addition, rbIRCd checks the return value of the command. If the
 motd command exits with anything other than 0, the client is killed.
-Soon there will be a seperate config value to enable this and have it
+Soon there will be a separate config value to enable this and have it
 disabled by default. This can be used to add IP blocking or
 blacklisting in other languages such as bash or C, as well as other
 selective server block tricks.
