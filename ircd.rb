@@ -157,7 +157,7 @@ class IRCChannel
 
 	def self.find(name)
 		name = name.downcase
-		@channels.each do |channel|
+		$server.channels.each do |channel|
 			return channel if channel.name.downcase == name
 		end
 		nil
@@ -262,7 +262,7 @@ class IRCClient
 	
 	def self.find(nick)
 		nick = nick.downcase
-		@clients.each do |client|
+		$server.clients.each do |client|
 			return client if client.nick.downcase == nick
 		end
 		nil
@@ -390,7 +390,7 @@ class IRCClient
 	end
 	
 	def join(channel)
-		channel = Channel.find_or_create(channel) unless channel.is_a?(IRCChannel)
+		channel = IRCChannel.find_or_create(channel) unless channel.is_a?(IRCChannel)
 		return(channel) if channel.users.include?(self)
 		channel.users << self
 		channel.users.each do |user|
@@ -508,20 +508,22 @@ class IRCClient
 				pass = args[2]
 				
 				ServerConfig.opers.each do |oper|
-					if oper['login'].downcase == name and oper['pass'] == pass
+					if oper['login'].downcase == name && oper['pass'] == pass
 						@opered = true
 						break
 					end
 				end
 				if @opered
 					put_snumeric 381, ':You have entered... the Twilight Zone!'
-					join ServerConfig.oper_channel
+					join ServerConfig.oper_channel if ServerConfig.oper_channel
 				else
 					put_snumeric 491, ':Only few of mere mortals may try to enter the twilight zone'
 				end
 				
 			when 'kill'
-				if @opered
+				if args.size < 3
+					put_snumeric 461, 'KILL :Not enough parameters'
+				elsif @opered
 					target = IRCClient.find(args[1])
 					if target == nil
 						put_snumeric 401, args[1] + ' :No such nick/channel'
@@ -545,19 +547,93 @@ class IRCClient
 					my_channels = self.channels
 					channels.reject! do |channel|
 						channel.has_any_mode?('ps') && !my_channels.include?(channel)
-					end
+					end unless @opered
 					channels &= my_channels if target.umodes.include?('p')
 					channel_strs = []
 					channels.each do |channel|
 						channel_strs << target.prefix_for(channel) + channel.name
 					end
-					put_snumeric 319, "#{target.nick} :#{channel_strs.join(' ')}" unless  channel_strs.empty?
+					put_snumeric 319, "#{target.nick} :#{channel_strs.join(' ')}" unless channel_strs.empty?
 					
 					put_snumeric 312, "#{target.nick} #{$server.name} :#{ServerConfig.server_desc}"
 					put_snumeric 317, "#{target.nick} 2 1233972544 :seconds idle, signon time"
 					put_snumeric 318, "#{target.nick} :End of /WHOIS list."
 				end
 				
+			when 'list'
+				put_snumeric 321, 'Channel :Users  Name'
+				pattern = nil
+				not_pattern = nil
+				min = nil
+				max = nil
+				if args[1]
+					args[1].split(',').each do |arg|
+						if arg =~ /<([0-9]+)/
+							max = $1.to_i
+						elsif arg =~ />([0-9]+)/
+							min = $1.to_i
+						elsif arg[0,1] == '!'
+							not_pattern = Regexp::escape(args[1][1..-1]).gsub('\*','.*').gsub('\?', '.')
+							not_pattern = /^#{not_pattern}$/i
+						else
+							pattern = Regexp::escape(args[1]).gsub('\*','.*').gsub('\?', '.')
+							pattern = /^#{pattern}$/i
+						end
+					end
+				end
+				$server.channels.each do |channel|
+					next if channel.has_any_mode?('ps') && !my_channels.include?(channel) && !@opered
+					next if pattern && !(channel.name =~ pattern)
+					next if not_pattern && channel.name =~ not_pattern
+					next if min && !(channel.users.size > min)
+					next if max && !(channel.users.size < max)
+					topic = ' ' + (channel.topic || '')
+					topic = "[+#{channel.modes}] #{topic}" if channel.modes
+					put_snumeric 322, "#{channel.name} #{channel.users.size} :#{topic}"
+				end
+				put_snumeric 323, ':End of /LIST'
+				
+			when 'who'
+				channel = nil
+				users = []
+				if args[1]
+					channel = IRCChannel.find(args[1])
+					users = channel.users
+				else
+					users = $server.clients
+				end
+				channel_name = channel && channel.name
+				users.each do |user|
+					# Phew.
+					next if user.has_umode?('i') && !(@opered || user == self || !(user.channels & self.channels).empty?)
+					
+					this_channel = channel_name
+					this_channel ||= user.channels[0].name if user.channels[0]
+					this_channel ||= '*'
+					
+					# G - User is /away (gone)
+					# H - User is not /away (here)
+					# r - User is using a registered nickname
+					# B - User is a bot (+B)
+					# * - User is an IRC Operator
+					# ~ - User is a Channel Owner (+q)
+					# & - User is a Channel Admin (+a)
+					# @ - User is a Channel Operator (+o)
+					# % - User is a Halfop (+h)
+					# + - User is Voiced (+v)
+					# ! - User is +H and you are an IRC Operator
+					# ? - User is only visible because you are an IRC Operator
+					prefix = 'H'
+					prefix += user.prefix_for(channel || user.channels[0]) if channel || user.channels[0]
+					prefix += 'B' if user.has_umode?('B')
+					prefix += '*' if user.opered && (!user.has_umode?('H') || @opered)
+					prefix += '!' if user.has_umode?('H') && @opered
+					prefix += '?' if user.has_umode?('i')
+					
+					put_snumeric 352, [this_channel, user.nick, user.host, $server.name, user.ident, prefix, ':0', user.realname].join(' ')
+				end
+				put_snumeric 315, (args[1] || '*') + ' :End of /WHO list.'
+			
 			when 'version'
 				send_version true # detailed
 			when 'lusers'
@@ -566,7 +642,7 @@ class IRCClient
 				send_motd
 				
 			when 'privmsg'
-				target = Channel.find(args[1])
+				target = IRCChannel.find(args[1])
 				if target == nil
 					target = IRCClient.find(args[1])
 					if target == nil
@@ -579,7 +655,7 @@ class IRCClient
 				end
 				
 			when 'notice'
-				target = Channel.find(args[1])
+				target = IRCChannel.find(args[1])
 				if target == nil
 					target = IRCClient.find(args[1])
 					if target == nil
@@ -597,11 +673,11 @@ class IRCClient
 				elsif !(args[1] =~ /^\#[a-zA-Z0-9`~!@\#$%^&*\(\)\'";|}{\]\[.<>?]{0,29}$/)
 					put_snumeric 432, "#{args[1]} :No such channel"
 				else
-					join channel
+					join args[1]
 				end
 				
 			when 'part'
-				channel = Channel.find(args[1])
+				channel = IRCChannel.find(args[1])
 				if channel == nil
 					put_snumeric 403, args[1] + ' :No such channel'
 				elsif !(channel.users.include?(self))
@@ -611,11 +687,11 @@ class IRCClient
 				end
 				
 			when 'names'
-				channel = Channel.find(args[1])
+				channel = IRCChannel.find(args[1])
 				send_names(channel)
 				
 			when 'topic'
-				channel = Channel.find(args[1])
+				channel = IRCChannel.find(args[1])
 				if args.size == 2
 					send_topic(channel, true) # Detailed (send no-topic-set if no topic)
 				else
@@ -627,7 +703,7 @@ class IRCClient
 			when 'mode'
 				# :Silicon.EighthBit.net 482 danopia #offtopic :You're not channel operator
 				# :Silicon.EighthBit.net 008 danopia :Server notice mask (+kcfvGqso)
-				target = Channel.find(args[1])
+				target = IRCChannel.find(args[1])
 				if target == nil
 					target = IRCClient.find(args[1])
 					if target == nil
@@ -699,11 +775,11 @@ class IRCClient
 				to_set = nil
 				to_set = nil
 				case char
-					when 'q'; list = channel.owners
-					when 'a'; list = channel.protecteds
-					when 'o'; list = channel.ops
-					when 'h'; list = channel.halfops
-					when 'v'; list = channel.voices
+					when 'q'; list = channel.owners; param = IRCClient.find(param)
+					when 'a'; list = channel.protecteds; param = IRCClient.find(param)
+					when 'o'; list = channel.ops; param = IRCClient.find(param)
+					when 'h'; list = channel.halfops; param = IRCClient.find(param)
+					when 'v'; list = channel.voices; param = IRCClient.find(param)
 					
 					when 'b'; list = channel.bans
 					when 'e'; list = channel.excepts
@@ -783,6 +859,16 @@ class IRCClient
   def is_owner_on(channel)
   	channel.owners.include? self
   end
+	
+	def has_umode?(umode)
+		@umodes.include? umode
+	end
+	def has_any_umode?(umodes)
+		umodes.split('').each do |umode|
+			return true if has_umode?(umode)
+		end
+		false
+	end
   
 end
 
