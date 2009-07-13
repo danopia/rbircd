@@ -686,6 +686,27 @@ class IRCClient
 					part channel, args[2] || 'Leaving'
 				end
 				
+			when 'kick'
+				if args.size < 3
+					put_snumeric 461, 'KICK :Not enough parameters'
+					return
+				end
+				
+				channel = IRCChannel.find(args[1])
+				target = IRCClient.find(args[2])
+				
+				if channel == nil
+					put_snumeric 403, args[1] + ' :No such channel'
+				elsif target == nil
+					put_snumeric 501, args[2] + ' :No such nick/channel'
+				elsif !target.is_on(channel)
+					put_snumeric 482, "#{target.nick} #{channel.name} :They aren\'t on that channel"
+				elsif !is_op_on(channel)
+					put_snumeric 482, channel.name + ' :You\'re not channel operator'
+				else
+					target.kicked_from(channel, self, args[3] || @nick)
+				end
+				
 			when 'names'
 				channel = IRCChannel.find(args[1])
 				send_names(channel)
@@ -842,6 +863,10 @@ class IRCClient
   	new_str << '-' + deletions.join('') unless deletions.empty?
   	new_str << ' ' + new_params.join(' ') unless new_params.empty?
   	new_str
+  end
+  
+  def is_on(channel)
+  	channel.users.include? self
   end
   
   def is_voice_on(channel)

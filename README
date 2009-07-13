@@ -2,7 +2,7 @@ Yay! rbIRCd is *finally* going on github. It's been, what, 3 days that haven't b
 
 Credits to Ruby for the 1337 OOP.
 Written by danopia.
-Test server MAY be up on danopia.no-ip.org (use port 7331 and join #botters)
+Test server MAY be up on danopia.no-ip.org (use port 7331 and join #meep)
 
 Implemented commands:
 - NICK
@@ -21,14 +21,15 @@ Implemented commands:
 - KILL
 - TOPIC
 - MODE - still needs work
+- LIST
+- WHO
+- KICK
 
 Soon to be done:
 - Ping timeouts
 - Join channel list
 - Modes
 - Code needs to be split up across files
-- WHO
 - Check for params to reduce errors
-- Check for chanop etc. before accepting modes, topics, kick
-- KICK
+- Check for chanop etc. before accepting modes, topics
 - INVITE
