@@ -231,7 +231,8 @@ end
 class IRCChannel
 	attr_reader :name, :users, :ops, :voice, :bans
 	attr_reader :modes, :mode_timestamp
-	attr_reader :topic, :topic_author, :topic_timestamp
+	attr_reader :topic, :topic_timestamp
+	attr_accessor :topic_author
 	
 	def initialize(name)
 		@name = name
@@ -262,9 +263,6 @@ class IRCChannel
 	def topic=(topic)
 		@topic = topic
 		@topic_timestamp = Time.now
-	end
-	def topic_author=(author)
-		@topic_author = author
 	end
 	
 end
