@@ -352,14 +352,7 @@ class IRCClient
 	end
 	def send_names(channel)
 		nicks = channel.users.map do |user|
-			nick = user.nick
-			prefixes = ''
-			prefixes << '~' if channel.owners.include?(nick)
-			prefixes << '&' if channel.protecteds.include?(nick)
-			prefixes << '@' if channel.ops.include?(nick)
-			prefixes << '%' if channel.halfops.include?(nick)
-			prefixes << '+' if channel.voices.include?(nick)
-			prefixes + nick
+			user.prefix_for(channel) + user.nick
 		end
 		put_snumeric 353, "= #{channel.name} :#{nicks.join(' ')}"
 		put_snumeric 366, channel.name + ' :End of /NAMES list.'
@@ -372,6 +365,43 @@ class IRCClient
 	def part(channel, reason = 'Leaving')
 		channel.send_to_all ":#{path} PART #{channel.name} :#{reason}"
 		channel.remove(self)
+	end
+	
+	def prefix_for(channel, whois=false)
+		prefix = ''
+		prefix << '~' if channel.owners.include?(self)
+		prefix << '&' if channel.protecteds.include?(self)
+		prefix << '@' if channel.ops.include?(self)
+		prefix << '%' if channel.halfops.include?(self)
+		prefix << '+' if channel.voices.include?(self)
+		prefix
+	end
+	
+	def nick=(newnick)
+		if is_registered?
+			puts ":#{path} NICK :" + newnick
+			
+			updated_users = [self]
+			self.channels do |channel| # Loop through the channels I'm in
+				channel.users.each do |user| # ...and then each user in each channel
+					unless updated_users.include?(user)
+						user.puts ":#{path} NICK :" + newnick
+						updated_users << user
+					end
+				end
+			end
+			
+			@nick = newnick # Changed last so that the path is right ^^
+		else
+			@nick = newnick # Changed first so check_registration can see it
+			check_registration
+		end
+	end
+	
+	def channels
+		$server.channels.select do |channel|
+			channel.users.include?(self)
+		end
 	end
 	
   def handle_packet(line)
@@ -402,26 +432,8 @@ class IRCClient
 					put_snumeric 432, "#{args[1]} :Erroneous Nickname: Illegal characters"
 				elsif $server.find_nick(args[1])
 					put_snumeric 433, "#{args[1]} :Nickname is already in use."
-				elsif is_registered?
-					newnick = args[1]
-					puts ":#{path} NICK :" + newnick
-					
-					updated_users = [self]
-					$server.channels.each do |channel|
-						if channel.users.include?(self)
-							channel.users.each do |user|
-								if !(updated_users.include?(user))
-									user.puts ":#{path} NICK :" + newnick
-									updated_users << user
-								end
-							end
-						end
-					end
-					
-					@nick = newnick
 				else
-					@nick = args[1]
-					check_registration
+					nick = args[1]
 				end
 				
 			when 'oper'
