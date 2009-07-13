@@ -78,7 +78,8 @@ class IRCServer
 					else
 						begin
 							active.client.handle_packet line
-						rescue
+						rescue => error
+							log error.to_s
 							active.client.skill 'Error occured'
 							@clients.delete(active.client)
 							@socks.delete(active)
@@ -119,17 +120,26 @@ class IRCServer
 end
 
 class IRCChannel
-	attr_reader :name, :users, :owners, :protecteds, :ops, :halfops, :voices, :bans
-	attr_reader :modes, :mode_timestamp
+	attr_reader :name, :users
+	attr_reader :owners, :protecteds, :ops, :halfops, :voices
+	attr_reader :bans, :invex, :excepts
+	attr_accessor :modes, :mode_timestamp
 	attr_reader :topic, :topic_timestamp
 	attr_accessor :topic_author
 	
 	def initialize(name)
 		@name = name
 		@users = []
+		
+		@owners = []
+		@protecteds = []
 		@ops = []
-		@voice = []
+		@halfops = []
+		@voices = []
+		
 		@bans = []
+		@invex = []
+		@excepts = []
 		
 		@modes = 'ns'
 		@mode_timestamp = Time.now.gmtime.to_i
@@ -162,10 +172,21 @@ class IRCChannel
 		send_to_all_except sender, ":#{sender.path} NOTICE #{name} :#{message}"
 	end
 	
+	def remove(client)
+		@users.delete(client)
+		
+		@owners.delete(client)
+		@protecteds.delete(client)
+		@ops.delete(client)
+		@halfops.delete(client)
+		@voices.delete(client)
+		
+		$server.channels.delete self if @users.size < 1
+	end
 end
 
 class IRCClient
-  attr_reader :nick, :ident, :realname, :io, :addr, :ip, :host, :dead
+  attr_reader :nick, :ident, :realname, :io, :addr, :ip, :host, :dead, :umodes
   attr_accessor :opered
   
 	def initialize(io)
@@ -175,6 +196,7 @@ class IRCClient
 		@io = io
 		@dead = false
 		@opered = false
+		@umodes = ''
 		
 		@addr = io.peeraddr
     @ip = @addr[3]
@@ -194,7 +216,8 @@ class IRCClient
 	end
 	def check_registration()
 		send_welcome_flood if is_registered?
-		puts ":#{@nick} MODE #{@nick} :+iwx"
+		change_umode '+iwx'
+		#puts ":#{@nick} MODE #{@nick} :+iwx"
 	end
  
 	def close(reason = 'Client quit')
@@ -315,10 +338,6 @@ class IRCClient
 		end
 		send_topic(channel)
 		send_names(channel)
-		
-		#>> :Silicon.EighthBit.net 324 danopia #bitcast +nt 
-		#>> :Silicon.EighthBit.net 329 danopia #bitcast 1247378376
-		
 		#>> :Silicon.EighthBit.net 352 danopia #bitcast danopia danopia::EighthBit::staff Silicon.EighthBit.net danopia Hr* :0 Daniel Danopia
 		#>> :Silicon.EighthBit.net 352 danopia #bitcast nixeagle 9F3ADEED.AC9A3767.180762F4.IP Silicon.EighthBit.net nixeagle Gr* :0 James
 		#>> :Silicon.EighthBit.net 352 danopia #bitcast CodeBlock CodeBlock::EighthBit::staff Platinum.EighthBit.net CodeBlock Hr*@ :1 CodeBlock
@@ -332,16 +351,27 @@ class IRCClient
 		put_snumeric 333, "#{channel.name} #{channel.topic_author} 1247378633"
 	end
 	def send_names(channel)
-		nicks = []
-		channel.users.each do |user|
-			nicks << user.nick
+		nicks = channel.users.map do |user|
+			nick = user.nick
+			prefixes = ''
+			prefixes << '~' if channel.owners.include?(nick)
+			prefixes << '&' if channel.protecteds.include?(nick)
+			prefixes << '@' if channel.ops.include?(nick)
+			prefixes << '%' if channel.halfops.include?(nick)
+			prefixes << '+' if channel.voices.include?(nick)
+			prefixes + nick
 		end
 		put_snumeric 353, "= #{channel.name} :#{nicks.join(' ')}"
 		put_snumeric 366, channel.name + ' :End of /NAMES list.'
 	end
+	#>> :Silicon.EighthBit.net 324 danopia #bitcast +nt 
+	#>> :Silicon.EighthBit.net 329 danopia #bitcast 1247378376
+	def send_modes(channel, detailed=false)
+		put_snumeric 324, channel.name + ' +' + channel.modes
+	end
 	def part(channel, reason = 'Leaving')
-		channel.send_to_all ":#{path} PART #{channel.name} :" + reason
-		channel.users.delete(self)
+		channel.send_to_all ":#{path} PART #{channel.name} :#{reason}"
+		channel.remove(self)
 	end
 	
   def handle_packet(line)
@@ -366,7 +396,6 @@ class IRCClient
 				end
 		
 			when 'nick'
-				p args
 				if args.size < 2 || args[1].size < 1
 					put_snumeric 431, ':No nickname given'
 				elsif !(args[1] =~ /^[a-zA-Z\[\]_|`^][a-zA-Z0-9\[\]_|`^]{0,29}$/)
@@ -485,7 +514,7 @@ class IRCClient
 				elsif !(channel.users.include?(self))
 					put_snumeric 403, args[1] + ' :No such channel'
 				else
-					part channel, args[2]
+					part channel, args[2] || 'Leaving'
 				end
 				
 			when 'names'
@@ -494,10 +523,40 @@ class IRCClient
 				
 			when 'topic'
 				channel = $server.find_channel(args[1])
-				send_topic(channel, true) # Detailed (send no-topic-set if no topic)
+				if args.size == 2
+					send_topic(channel, true) # Detailed (send no-topic-set if no topic)
+				else
+					channel.topic = args[2]
+					channel.topic_author = @nick
+					channel.send_to_all ":#{path} TOPIC #{channel.name} :#{args[2]}"
+				end
+				
+			when 'mode'
+				# :Silicon.EighthBit.net 482 danopia #offtopic :You're not channel operator
+				# :Silicon.EighthBit.net 008 danopia :Server notice mask (+kcfvGqso)
+				target = $server.find_channel(args[1])
+				if target == nil
+					target = $server.find_nick(args[1])
+					if target == nil
+						put_snumeric 401, args[1] + ' :No such nick/channel'
+					else
+						return unless target == self
+						if args.size == 2
+							put_snumeric 221, '+' + self.umodes
+						else
+							change_umode(args[2], args[3..-1])
+						end
+					end
+				else
+					if args.size == 2
+						send_modes target
+					else
+						change_chmode target, args[2], args[3..-1]
+					end
+				end
 				
 			when 'quit'
-				close 'Leaving'
+				close args[1] || 'Client quit'
 				return
 		
 			when 'pong'
@@ -517,6 +576,121 @@ class IRCClient
 				put_snumeric 421, command + ' :Unknown command'
 		end
   end
+  
+  def change_umode(changes_str, params=[])
+  	valid = 'oOaANCdghipqrstvwxzBGHRSTVW'.split('')
+  	str = parse_mode_string(changes_str, params) do |add, char, param|
+  		next false unless valid.include? char
+  		if @umodes.include?(char) ^ !add
+  			# Already set
+   			next false
+  		elsif add
+				@umodes << char
+			else
+				@umodes = @umodes.delete char
+  		end
+  		true
+  	end
+  	puts ":#{path} MODE #{@nick} :#{str}"
+  	str
+  end
+  def change_chmode(channel, changes_str, params=[])
+  	valid = 'vhoaqbceIfijklmnprstzACGMKLNOQRSTVu'.split('')
+  	lists = 'vhoaqbeI'.split('')
+  	need_params = 'vhoaqbeIfjklL'.split('')
+  	str = parse_mode_string(changes_str, params) do |add, char, param|
+  		next false unless valid.include? char
+  		next :need_param if need_params.include?(char) && !param
+  		if lists.include? char
+				list = nil
+				to_set = nil
+				to_set = nil
+				case char
+					when 'q'; list = channel.owners
+					when 'a'; list = channel.protecteds
+					when 'o'; list = channel.ops
+					when 'h'; list = channel.halfops
+					when 'v'; list = channel.voices
+					
+					when 'b'; list = channel.bans
+					when 'e'; list = channel.excepts
+					when 'I'; list = channel.invex
+				end
+				next false if list.include?(param) ^ !add
+				if add
+					list << param
+				else
+					list.delete param
+				end
+  		elsif channel.modes.include?(char) ^ !add
+  			# Already set
+   			next false
+  		elsif add || add == nil
+				channel.modes << char
+			else
+				channel.modes = channel.modes.delete char
+  		end
+  		true
+  	end
+  	channel.send_to_all ":#{path} MODE #{channel.name} :#{str}"
+  	str
+  end
+  
+  def parse_mode_string(mode_str, params=[])
+  	add = nil
+  	additions = []
+  	deletions = []
+  	new_params = []
+  	mode_str.split('').each do |mode_chr|
+  		if mode_chr == '+'
+  			add = true
+  		elsif mode_chr == '-'
+  			add = false
+  		else
+  			ret = yield(add, mode_chr, nil)
+  			if ret == :need_param && params[0]
+  				new_params << params[0]
+  				ret = yield(add, mode_chr, params.shift)
+  			end
+  			if !ret || ret == :need_param
+				elsif add || add == nil
+					if deletions.include?(mode_chr)
+						deletions.delete(mode_chr)
+					else
+						additions << mode_chr unless additions.include?(mode_chr)
+					end
+				else
+					if additions.include?(mode_chr)
+						additions.delete(mode_chr)
+					else
+						deletions << mode_chr unless deletions.include?(mode_chr)
+					end
+				end
+  		end
+  	end
+  	new_str = ''
+  	new_str << '+' + additions.join('') unless additions.empty?
+  	new_str << '-' + deletions.join('') unless deletions.empty?
+  	new_str << ' ' + new_params.join(' ') unless new_params.empty?
+  	new_str
+  end
+  
+  def is_voice_on(channel)
+  	channel.voices.include? self
+  end
+  def is_halfop_on(channel)
+  	channel.halfops.include? self
+  end
+  def is_op_on(channel)
+  	channel.ops.include? self
+  end
+  def is_protected_on(channel)
+  	channel.protecteds.include? self
+  end
+  def is_owner_on(channel)
+  	channel.owners.include? self
+  end
+  
 end
 
 class ServerConfig
@@ -540,7 +714,7 @@ $server = IRCServer.new(ServerConfig.server_name)
 $server.add_listener ServerConfig.listen_host, ServerConfig.listen_port.to_i
 
 $server.debug = true
-#begin
+
 $server.run
 loop do
 	sleep 60
@@ -553,13 +727,3 @@ loop do
 		end	
 	end
 end
-
-#ensure
-	#$server.clients.each do |value|
-		#begin
-			#value.skill 'Server is going down NOW!'
-		#rescue => detail
-			#$server.clients.clear
-		#end	
-	#end
-#end
