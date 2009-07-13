@@ -123,22 +123,6 @@ class IRCServer
 		@socks.delete sock
 		@clients.delete sock.client
 	end
-	
-	def find_nick(nick)
-		target = nick.downcase
-		@clients.each do |client|
-			return client if client.nick.downcase == target
-		end
-		nil
-	end
-
-	def find_channel(channel)
-		target = channel.downcase
-		@channels.each do |channel|
-			return channel if channel.name.downcase == target
-		end
-		nil
-	end
 end
 
 class IRCChannel
@@ -170,6 +154,23 @@ class IRCChannel
 		@topic_author = nil
 		@topic_timestamp = nil
 	end
+
+	def self.find(name)
+		name = name.downcase
+		@channels.each do |channel|
+			return channel if channel.name.downcase == name
+		end
+		nil
+	end
+
+	def self.find_or_create(name)
+		channel = IRCChannel.find name
+		return channel if channel
+		
+		channel = IRCChannel.new(name)
+		$server.channels << channel
+		channel
+	end
 	
 	def send_to_all(msg)
 		users.each do |user|
@@ -194,6 +195,11 @@ class IRCChannel
 		send_to_all_except sender, ":#{sender.path} NOTICE #{name} :#{message}"
 	end
 	
+	def part(client, message='Leaving')
+		send_to_all ":#{client.path} PART #{name} :#{message}"
+		remove client
+	end
+	
 	def remove(client)
 		@users.delete(client)
 		
@@ -203,7 +209,28 @@ class IRCChannel
 		@halfops.delete(client)
 		@voices.delete(client)
 		
-		$server.channels.delete self if @users.size < 1
+		destroy('Channel empty') if empty?
+	end
+	
+	def empty?
+		@users.empty?
+	end
+	
+	def destroy(reason='OM NOM NOM')
+		@users.each do |user|
+			user.kicked_from self, $server.name, reason
+		end
+		$server.channels.delete self
+	end
+	
+	def has_mode?(mode)
+		@modes.include? mode
+	end
+	def has_any_mode?(modes)
+		modes.split('').each do |mode|
+			return true if has_mode?(mode)
+		end
+		false
 	end
 end
 
@@ -231,6 +258,14 @@ class IRCClient
 		
     puts ":#{$server.name} NOTICE AUTH :*** Looking up your hostname..."
     puts ":#{$server.name} NOTICE AUTH :*** Found your hostname"
+	end
+	
+	def self.find(nick)
+		nick = nick.downcase
+		@clients.each do |client|
+			return client if client.nick.downcase == nick
+		end
+		nil
 	end
 
 	def is_registered?
@@ -355,7 +390,8 @@ class IRCClient
 	end
 	
 	def join(channel)
-		return if channel.users.include?(self)
+		channel = Channel.find_or_create(channel) unless channel.is_a?(IRCChannel)
+		return(channel) if channel.users.include?(self)
 		channel.users << self
 		channel.users.each do |user|
 			user.puts ":#{path} JOIN :#{channel.name}"
@@ -386,8 +422,15 @@ class IRCClient
 	def send_modes(channel, detailed=false)
 		put_snumeric 324, channel.name + ' +' + channel.modes
 	end
+	
 	def part(channel, reason = 'Leaving')
-		channel.send_to_all ":#{path} PART #{channel.name} :#{reason}"
+		channel.part self, reason
+	end
+	
+	def kicked_from(channel, kicker, reason = nil)
+		kicker = kicker.path if kicker.is_a?(IRCClient)
+		reason = ' :' + reason if reason
+		channel.send_to_all ":#{kicker} KICK #{channel.name} #{@nick}#{reason}"
 		channel.remove(self)
 	end
 	
@@ -454,7 +497,7 @@ class IRCClient
 					put_snumeric 431, ':No nickname given'
 				elsif !(args[1] =~ /^[a-zA-Z\[\]_|`^][a-zA-Z0-9\[\]_|`^]{0,29}$/)
 					put_snumeric 432, "#{args[1]} :Erroneous Nickname: Illegal characters"
-				elsif $server.find_nick(args[1])
+				elsif IRCClient.find(args[1])
 					put_snumeric 433, "#{args[1]} :Nickname is already in use."
 				else
 					self.nick = args[1]
@@ -467,14 +510,19 @@ class IRCClient
 				ServerConfig.opers.each do |oper|
 					if oper['login'].downcase == name and oper['pass'] == pass
 						@opered = true
+						break
 					end
 				end
-				put_snumeric 381, ':You have entered... the Twilight Zone!' if @opered
-				put_snumeric 491, ':Only few of mere mortals may try to enter the twilight zone' unless @opered
+				if @opered
+					put_snumeric 381, ':You have entered... the Twilight Zone!'
+					join ServerConfig.oper_channel
+				else
+					put_snumeric 491, ':Only few of mere mortals may try to enter the twilight zone'
+				end
 				
 			when 'kill'
 				if @opered
-					target = $server.find_nick(args[1])
+					target = IRCClient.find(args[1])
 					if target == nil
 						put_snumeric 401, args[1] + ' :No such nick/channel'
 					else
@@ -485,12 +533,26 @@ class IRCClient
 				end
 				
 			when 'whois'
-				target = $server.find_nick(args[1])
+				target = IRCClient.find(args[1])
 				if target == nil
 					put_snumeric 401, args[1] + ' :No such nick/channel'
 				else
 					put_snumeric 311, "#{target.nick} #{target.ident} #{target.host} * :#{target.realname}"
 					put_snumeric 378, "#{target.nick} :is connecting from *@#{target.addr[2]} #{target.ip}"
+					put_snumeric 379, "#{target.nick} :is using modes +#{target.umodes}" if target == self || @opered
+					
+					channels = target.channels
+					my_channels = self.channels
+					channels.reject! do |channel|
+						channel.has_any_mode?('ps') && !my_channels.include?(channel)
+					end
+					channels &= my_channels if target.umodes.include?('p')
+					channel_strs = []
+					channels.each do |channel|
+						channel_strs << target.prefix_for(channel) + channel.name
+					end
+					put_snumeric 319, "#{target.nick} :#{channel_strs.join(' ')}" unless  channel_strs.empty?
+					
 					put_snumeric 312, "#{target.nick} #{$server.name} :#{ServerConfig.server_desc}"
 					put_snumeric 317, "#{target.nick} 2 1233972544 :seconds idle, signon time"
 					put_snumeric 318, "#{target.nick} :End of /WHOIS list."
@@ -504,9 +566,9 @@ class IRCClient
 				send_motd
 				
 			when 'privmsg'
-				target = $server.find_channel(args[1])
+				target = Channel.find(args[1])
 				if target == nil
-					target = $server.find_nick(args[1])
+					target = IRCClient.find(args[1])
 					if target == nil
 						put_snumeric 401, args[1] + ' :No such nick/channel'
 					else
@@ -517,9 +579,9 @@ class IRCClient
 				end
 				
 			when 'notice'
-				target = $server.find_channel(args[1])
+				target = Channel.find(args[1])
 				if target == nil
-					target = $server.find_nick(args[1])
+					target = IRCClient.find(args[1])
 					if target == nil
 						put_snumeric 401, args[1] + ' :No such nick/channel'
 					else
@@ -535,16 +597,11 @@ class IRCClient
 				elsif !(args[1] =~ /^\#[a-zA-Z0-9`~!@\#$%^&*\(\)\'";|}{\]\[.<>?]{0,29}$/)
 					put_snumeric 432, "#{args[1]} :No such channel"
 				else
-					channel = $server.find_channel(args[1])
-					if channel == nil
-						channel = IRCChannel.new(args[1].downcase)
-						$server.channels << channel
-					end
 					join channel
 				end
 				
 			when 'part'
-				channel = $server.find_channel(args[1])
+				channel = Channel.find(args[1])
 				if channel == nil
 					put_snumeric 403, args[1] + ' :No such channel'
 				elsif !(channel.users.include?(self))
@@ -554,11 +611,11 @@ class IRCClient
 				end
 				
 			when 'names'
-				channel = $server.find_channel(args[1])
+				channel = Channel.find(args[1])
 				send_names(channel)
 				
 			when 'topic'
-				channel = $server.find_channel(args[1])
+				channel = Channel.find(args[1])
 				if args.size == 2
 					send_topic(channel, true) # Detailed (send no-topic-set if no topic)
 				else
@@ -570,9 +627,9 @@ class IRCClient
 			when 'mode'
 				# :Silicon.EighthBit.net 482 danopia #offtopic :You're not channel operator
 				# :Silicon.EighthBit.net 008 danopia :Server notice mask (+kcfvGqso)
-				target = $server.find_channel(args[1])
+				target = Channel.find(args[1])
 				if target == nil
-					target = $server.find_nick(args[1])
+					target = IRCClient.find(args[1])
 					if target == nil
 						put_snumeric 401, args[1] + ' :No such nick/channel'
 					else
@@ -601,7 +658,7 @@ class IRCClient
 				puts ":#{$server.name} PONG #{$server.name} :#{target}"
 				
 			when 'userhost'
-				target = $server.find_nick(args[1])
+				target = IRCClient.find(args[1])
 				if target == nil
 					put_snumeric 401, args[1] + ' :No such nick/channel'
 				else
