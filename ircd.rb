@@ -54,7 +54,13 @@ class IRCServer
 			#BasicSocket.do_not_reverse_lookup = true
 
 			loop do
-				active = select(@listen_socks + @socks)[0][0]
+				active = nil
+				remove_closed
+				begin
+					active = select(@listen_socks + @socks)[0][0]
+				rescue IOError
+					next # next time will remove closed sockets again
+				end
 				next if not active
 				
 				if @listen_socks.include? active
@@ -89,7 +95,8 @@ class IRCServer
 				end
 			end
 		
-		rescue
+		rescue => error
+			log error.to_s
 			@socks.each do |sock|
 				sock.client.skill 'Server is going down NOW!'
 			end
@@ -99,7 +106,22 @@ class IRCServer
 			end
 			@listen_socks.clear
 			@running = false
+			error.throw
 		end
+	end
+	
+	def remove_closed
+		@socks.reject! do |sock|
+			sock.closed? #|| sock.eof?
+		end
+	end
+	
+	def remove_client(client)
+		remove_sock client.io
+	end
+	def remove_sock(sock)
+		@socks.delete sock
+		@clients.delete sock.client
 	end
 	
 	def find_nick(nick)
@@ -244,6 +266,8 @@ class IRCClient
 			@io.close
 		rescue
 		end
+		
+		$server.remove_sock io
 	end
 	def kill(killer, reason = 'Client quit')
 		puts(":#{killer.path} KILL #{@nick} :#{$server.name}!#{killer.host}!#{killer.nick} (#{reason})")
@@ -433,7 +457,7 @@ class IRCClient
 				elsif $server.find_nick(args[1])
 					put_snumeric 433, "#{args[1]} :Nickname is already in use."
 				else
-					nick = args[1]
+					self.nick = args[1]
 				end
 				
 			when 'oper'
@@ -454,7 +478,7 @@ class IRCClient
 					if target == nil
 						put_snumeric 401, args[1] + ' :No such nick/channel'
 					else
-						target.kill self, "Killed (#{@nick} ())"
+						target.kill self, "Killed (#{@nick} (#{args[2]}))"
 					end
 				else
 					put_snumeric 481, ':Permission Denied- You do not have the correct IRC operator privileges'
