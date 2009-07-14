@@ -8,7 +8,7 @@ Implemented commands:
 - NICK
 - USER
 - WHOIS
-- JOIN - won't take lists
+- JOIN - doesn't take lists
 - PART
 - QUIT
 - PRIVMSG
@@ -33,3 +33,4 @@ Soon to be done:
 - Check for params to reduce errors
 - Check for chanop etc. before accepting modes, topics
 - INVITE
+- AWAY

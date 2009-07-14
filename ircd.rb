@@ -95,7 +95,7 @@ class IRCServer
 				end
 			end
 		
-		rescue => error
+		#rescue => error
 			log error.to_s
 			@socks.each do |sock|
 				sock.client.skill 'Server is going down NOW!'
@@ -106,6 +106,7 @@ class IRCServer
 			end
 			@listen_socks.clear
 			@running = false
+			p error
 			error.throw
 		end
 	end
@@ -129,7 +130,7 @@ class IRCChannel
 	attr_reader :name, :users
 	attr_reader :owners, :protecteds, :ops, :halfops, :voices
 	attr_reader :bans, :invex, :excepts
-	attr_accessor :modes, :mode_timestamp
+	attr_reader :modes, :mode_timestamp
 	attr_reader :topic, :topic_timestamp
 	attr_accessor :topic_author
 	
@@ -148,7 +149,7 @@ class IRCChannel
 		@excepts = []
 		
 		@modes = 'ns'
-		@mode_timestamp = Time.now.gmtime.to_i
+		@mode_timestamp = Time.now.to_i
 		
 		@topic = nil
 		@topic_author = nil
@@ -181,6 +182,11 @@ class IRCChannel
 		users.each do |user|
 			user.puts msg unless user == nontarget
 		end
+	end
+	
+	def modes=(modes)
+		@modes = modes
+		@modes_timestamp = Time.now
 	end
 	
 	def topic=(topic)
@@ -236,7 +242,7 @@ end
 
 class IRCClient
   attr_reader :nick, :ident, :realname, :io, :addr, :ip, :host, :dead, :umodes
-  attr_accessor :opered
+  attr_accessor :opered, :away, :created_at, :modified_at
   
 	def initialize(io)
 		@nick = '*'
@@ -246,6 +252,9 @@ class IRCClient
 		@dead = false
 		@opered = false
 		@umodes = ''
+		@away = nil
+		@created_at = Time.now
+		@modified_at = Time.now
 		
 		@addr = io.peeraddr
     @ip = @addr[3]
@@ -408,7 +417,7 @@ class IRCClient
 			return
 		end
 		put_snumeric 332, channel.name + ' :' + channel.topic
-		put_snumeric 333, "#{channel.name} #{channel.topic_author} 1247378633"
+		put_snumeric 333, [channel.name, channel.topic_author, channel.topic_timestamp.to_i].join(' ')
 	end
 	def send_names(channel)
 		nicks = channel.users.map do |user|
@@ -417,10 +426,9 @@ class IRCClient
 		put_snumeric 353, "= #{channel.name} :#{nicks.join(' ')}"
 		put_snumeric 366, channel.name + ' :End of /NAMES list.'
 	end
-	#>> :Silicon.EighthBit.net 324 danopia #bitcast +nt 
-	#>> :Silicon.EighthBit.net 329 danopia #bitcast 1247378376
 	def send_modes(channel, detailed=false)
 		put_snumeric 324, channel.name + ' +' + channel.modes
+		put_snumeric 329, channel.name + ' ' + channel.modes_timestamp.to_i
 	end
 	
 	def part(channel, reason = 'Leaving')
@@ -472,6 +480,8 @@ class IRCClient
 	end
 	
   def handle_packet(line)
+  	@modified_at = Time.now
+  	
 		# Parse as per the RFC
 		raw_parts = line.chomp.split(' :', 2)
 		args = raw_parts[0].split(' ')
@@ -501,6 +511,15 @@ class IRCClient
 					put_snumeric 433, "#{args[1]} :Nickname is already in use."
 				else
 					self.nick = args[1]
+				end
+				
+			when 'away'
+				if args.size == 1
+					@away = nil
+					put_snumeric 305, ':You are no longer marked as being away'
+				else
+					@away = args[1]
+					put_snumeric 306, ':You have been marked as being away'
 				end
 				
 			when 'oper'
@@ -555,8 +574,9 @@ class IRCClient
 					end
 					put_snumeric 319, "#{target.nick} :#{channel_strs.join(' ')}" unless channel_strs.empty?
 					
+					put_snumeric 301, "#{target.nick} :#{target.away}" if target.away
 					put_snumeric 312, "#{target.nick} #{$server.name} :#{ServerConfig.server_desc}"
-					put_snumeric 317, "#{target.nick} 2 1233972544 :seconds idle, signon time"
+					put_snumeric 317, "#{target.nick} #{Time.now.to_i - @modified_at.to_i} #{@created_at.to_i} :seconds idle, signon time"
 					put_snumeric 318, "#{target.nick} :End of /WHOIS list."
 				end
 				
@@ -598,7 +618,7 @@ class IRCClient
 				users = []
 				if args[1]
 					channel = IRCChannel.find(args[1])
-					users = channel.users
+					users = channel.users if channel
 				else
 					users = $server.clients
 				end
@@ -611,21 +631,11 @@ class IRCClient
 					this_channel ||= user.channels[0].name if user.channels[0]
 					this_channel ||= '*'
 					
-					# G - User is /away (gone)
-					# H - User is not /away (here)
-					# r - User is using a registered nickname
-					# B - User is a bot (+B)
-					# * - User is an IRC Operator
-					# ~ - User is a Channel Owner (+q)
-					# & - User is a Channel Admin (+a)
-					# @ - User is a Channel Operator (+o)
-					# % - User is a Halfop (+h)
-					# + - User is Voiced (+v)
-					# ! - User is +H and you are an IRC Operator
-					# ? - User is only visible because you are an IRC Operator
-					prefix = 'H'
+					prefix = 'G' if user.away
+					prefix ||= 'H'
 					prefix += user.prefix_for(channel || user.channels[0]) if channel || user.channels[0]
 					prefix += 'B' if user.has_umode?('B')
+					prefix += 'r' if user.has_umode?('r')
 					prefix += '*' if user.opered && (!user.has_umode?('H') || @opered)
 					prefix += '!' if user.has_umode?('H') && @opered
 					prefix += '?' if user.has_umode?('i')
@@ -636,8 +646,10 @@ class IRCClient
 			
 			when 'version'
 				send_version true # detailed
+				
 			when 'lusers'
 				send_lusers
+				
 			when 'motd'
 				send_motd
 				
@@ -785,16 +797,48 @@ class IRCClient
   	str
   end
   def change_chmode(channel, changes_str, params=[])
+		#<< MODE ##meep b
+		#>> :Silicon.EighthBit.net 367 danopia ##meep danopia!*@* danopia 1247529868
+		#>> :Silicon.EighthBit.net 368 danopia ##meep :End of Channel Ban List
+		#<< MODE ##meep I
+		#>> :Silicon.EighthBit.net 346 danopia ##meep danopia!*@* danopia 1247529861
+		#>> :Silicon.EighthBit.net 347 danopia ##meep :End of Channel Invite List
+		#<< MODE ##meep e
+		#>> :Silicon.EighthBit.net 348 danopia ##meep danopia!*@* danopia 1247529865
+		#>> :Silicon.EighthBit.net 349 danopia ##meep :End of Channel Exception List
+		
+		#>> :hubbard.freenode.net 482 danopia` ##GPT :You need to be a channel operator to do that
   	valid = 'vhoaqbceIfijklmnprstzACGMKLNOQRSTVu'.split('')
-  	lists = 'vhoaqbeI'.split('')
+  	listsA = 'vhoaq'.split('')
+  	listsB = 'beI'.split('')
   	need_params = 'vhoaqbeIfjklL'.split('')
   	str = parse_mode_string(changes_str, params) do |add, char, param|
   		next false unless valid.include? char
   		next :need_param if need_params.include?(char) && !param
-  		if lists.include? char
+  		if listsA.include? char
+				list = nil
+				
+				case char
+					when 'q'; list = channel.owners; param = IRCClient.find(param)
+					when 'a'; list = channel.protecteds; param = IRCClient.find(param)
+					when 'o'; list = channel.ops; param = IRCClient.find(param)
+					when 'h'; list = channel.halfops; param = IRCClient.find(param)
+					when 'v'; list = channel.voices; param = IRCClient.find(param)
+					
+					when 'b'; list = channel.bans
+					when 'e'; list = channel.excepts
+					when 'I'; list = channel.invex
+				end
+				next false if list.include?(param) ^ !add
+				if add
+					list << param
+				else
+					list.delete param
+				end
+			elsif listsB.include? char
 				list = nil
 				to_set = nil
-				to_set = nil
+				
 				case char
 					when 'q'; list = channel.owners; param = IRCClient.find(param)
 					when 'a'; list = channel.protecteds; param = IRCClient.find(param)
@@ -815,7 +859,7 @@ class IRCClient
   		elsif channel.modes.include?(char) ^ !add
   			# Already set
    			next false
-  		elsif add || add == nil
+  		elsif add
 				channel.modes << char
 			else
 				channel.modes = channel.modes.delete char
@@ -827,7 +871,7 @@ class IRCClient
   end
   
   def parse_mode_string(mode_str, params=[])
-  	add = nil
+  	add = true
   	additions = []
   	deletions = []
   	new_params = []
@@ -843,7 +887,7 @@ class IRCClient
   				ret = yield(add, mode_chr, params.shift)
   			end
   			if !ret || ret == :need_param
-				elsif add || add == nil
+				elsif add
 					if deletions.include?(mode_chr)
 						deletions.delete(mode_chr)
 					else
@@ -883,6 +927,22 @@ class IRCClient
   end
   def is_owner_on(channel)
   	channel.owners.include? self
+  end
+  
+  def is_voice_or_better_on(channel)
+  	is_voice_on(channel) || is_halfop_or_better_on(channel)
+  end
+  def is_halfop_or_better_on(channel)
+  	is_halfop_on(channel)|| is_op_or_better_on(channel)
+  end
+  def is_op_or_better_on(channel)
+  	is_op_on(channel)  || is_protected_or_better_on(channel)
+  end
+  def is_protected_or_better_on(channel)
+  	is_protected_on(channel) || is_owner_on(channel)
+  end
+  def is_owner_or_better_on(channel)
+  	is_owner_on(channel)
   end
 	
 	def has_umode?(umode)
