@@ -59,7 +59,7 @@ loop do
 	sleep 60
 	$server.clients.each do |value|
 		begin
-			value.puts 'PING :' + $server.name
+			value.puts "PING :#{$server.name}"
 		rescue => detail
 			value.close
 			$server.clients.delete(value)

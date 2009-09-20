@@ -39,7 +39,7 @@ class IRCClient
 		@modified_at = Time.now
 		
 		@addr = io.peeraddr
-    @ip = @addr[3]
+		@ip = @addr[3]
 		@host = @addr[2]
 		
 		io.instance_variable_set('@client', self)
@@ -47,8 +47,8 @@ class IRCClient
 			@client
 		end
 		
-    puts ":#{$server.name} NOTICE AUTH :*** Looking up your hostname..."
-    puts ":#{$server.name} NOTICE AUTH :*** Found your hostname"
+		puts ":#{$server.name} NOTICE AUTH :*** Looking up your hostname..."
+		puts ":#{$server.name} NOTICE AUTH :*** Found your hostname"
 	end
 	
 	def self.find(nick)
@@ -100,7 +100,7 @@ class IRCClient
 		close reason
 	end
 	def skill(reason = 'Client quit')
-		puts(":#{$server.name} KILL #{@nick} :#{$server.name} (#{reason})")
+		puts(":#{$server.name} KILL #{@nick} :#{$server.name} #{reason}")
 		close reason
 	end
 	
@@ -134,7 +134,7 @@ class IRCClient
 			puts ":#{$server.name} NOTICE #{@nick} :zlib 1.2.3"
 			puts ":#{$server.name} NOTICE #{@nick} :libcurl/7.19.4 GnuTLS/2.6.6 zlib/1.2.3 c-ares/1.6.0 libssh2/0.18"
 		end
-		put_snumeric '005', 'NAMESX SAFELIST HCN MAXCHANNELS=10 CHANLIMIT=#:10 MAXLIST=b:60,e:60,I:60 NICKLEN=30 CHANNELLEN=32 TOPICLEN=307 KICKLEN=307 AWAYLEN=307 MAXTARGETS=20 WALLCHOPS :are supported by this server'
+		put_snumeric '005', "NAMESX SAFELIST HCN MAXCHANNELS=#{ServerConfig.max_channels} CHANLIMIT=#:#{ServerConfig.max_channels_per_user} MAXLIST=b:60,e:60,I:60 NICKLEN=#{ServerConfig.max_nick_length} CHANNELLEN=#{ServerConfig.max_channel_length} TOPICLEN=#{ServerConfig.max_topic_length} KICKLEN=#{ServerConfig.max_kick_length} AWAYLEN=#{ServerConfig.max_away_length} MAXTARGETS=#{ServerConfig.max_targets} WALLCHOPS :are supported by this server"
 		put_snumeric '005', "WATCH=128 SILENCE=15 MODES=12 CHANTYPES=# PREFIX=(qaohv)~&@%+ CHANMODES=beI,kfL,lj,psmntirRcOAQKVCuzNSMTG NETWORK=#{ServerConfig.network_name.gsub(' ', '-')} CASEMAPPING=ascii EXTBAN=~,cqnr ELIST=MNUCT STATUSMSG=~&@%+ EXCEPTS INVEX :are supported by this server"
 		put_snumeric '005', 'CMDS=KNOCK,MAP,DCCALLOW,USERIP :are supported by this server'
 	end
@@ -172,7 +172,7 @@ class IRCClient
 		if motd
 			put_snumeric 375, ":- #{$server.name} Message of the Day -"
 			motd.each_line do |line|
-				put_snumeric 372, ':- ' + line
+				put_snumeric 372, ":- #{line}"
 			end
 			put_snumeric 376, ':End of /MOTD command.'
 		else
@@ -195,22 +195,22 @@ class IRCClient
 	end
 	def send_topic(channel, detailed=false)
 		if not channel.topic
-			put_snumeric 331, channel.name + ' :No topic is set.' if detailed
+			put_snumeric 331, "#{channel.name} :No topic is set." if detailed
 			return
 		end
-		put_snumeric 332, channel.name + ' :' + channel.topic
-		put_snumeric 333, [channel.name, channel.topic_author, channel.topic_timestamp.to_i].join(' ')
+		put_snumeric 332, "#{channel.name} :#{channel.topic}"
+		put_snumeric 333, "#{channel.name} #{channel.topic_author} #{channel.topic_timestamp.to_i}"
 	end
 	def send_names(channel)
 		nicks = channel.users.map do |user|
 			user.prefix_for(channel) + user.nick
 		end
 		put_snumeric 353, "= #{channel.name} :#{nicks.join(' ')}"
-		put_snumeric 366, channel.name + ' :End of /NAMES list.'
+		put_snumeric 366, "#{channel.name} :End of /NAMES list."
 	end
 	def send_modes(channel, detailed=false)
-		put_snumeric 324, channel.name + ' +' + channel.modes
-		put_snumeric 329, channel.name + ' ' + channel.modes_timestamp.to_i
+		put_snumeric 324, "#{channel.name} +#{channel.modes}"
+		put_snumeric 329, "#{channel.name} #{channel.mode_timestamp.to_i}"
 	end
 	
 	def part(channel, reason = 'Leaving')
@@ -236,13 +236,13 @@ class IRCClient
 	
 	def nick=(newnick)
 		if is_registered?
-			puts ":#{path} NICK :" + newnick
+			puts ":#{path} NICK :#{newnick}"
 			
 			updated_users = [self]
 			self.channels do |channel| # Loop through the channels I'm in
 				channel.users.each do |user| # ...and then each user in each channel
 					unless updated_users.include?(user)
-						user.puts ":#{path} NICK :" + newnick
+						user.puts ":#{path} NICK :#{newnick}"
 						updated_users << user
 					end
 				end
@@ -422,9 +422,9 @@ class IRCClient
 					prefix += '!' if user.has_umode?('H') && @opered
 					prefix += '?' if user.has_umode?('i')
 					
-					put_snumeric 352, [this_channel, user.nick, user.host, $server.name, user.ident, prefix, ':0', user.realname].join(' ')
+					put_snumeric 352, "#{this_channel} #{user.nick} #{user.host} #{$server.name} #{user.ident} #{prefix} :0 #{user.realname}"
 				end
-				put_snumeric 315, (args[1] || '*') + ' :End of /WHO list.'
+				put_snumeric 315, "#{(args[1] || '*')} :End of /WHO list."
 			
 			when 'version'
 				send_version true # detailed
@@ -440,7 +440,7 @@ class IRCClient
 				if target == nil
 					target = IRCClient.find(args[1])
 					if target == nil
-						put_snumeric 401, args[1] + ' :No such nick/channel'
+						put_snumeric 401, "#{args[1]} :No such nick/channel"
 					else
 						target.puts ":#{path} PRIVMSG #{target.nick} :#{args[2]}"
 					end
@@ -453,7 +453,7 @@ class IRCClient
 				if target == nil
 					target = IRCClient.find(args[1])
 					if target == nil
-						put_snumeric 401, args[1] + ' :No such nick/channel'
+						put_snumeric 401, "#{args[1]} :No such nick/channel"
 					else
 						target.puts ":#{path} NOTICE #{target.nick} :#{args[2]}"
 					end
