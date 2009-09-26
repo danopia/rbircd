@@ -1,5 +1,8 @@
 #!/usr/bin/env ruby
 
+# Copyright (c) 2009 Daniel Danopia
+# All rights reserved.
+# 
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
 # 
@@ -50,7 +53,10 @@ ServerConfig.load('rbircd.conf')
 
 # Daemons.daemonize
 $server = IRCServer.new(ServerConfig.server_name)
-$server.add_listener ServerConfig.listen_host, ServerConfig.listen_port.to_i
+
+ServerConfig.listens.each do |listener|
+	$server.add_listener listener['interface'], listener['port'].to_i
+end
 
 $server.debug = true
 

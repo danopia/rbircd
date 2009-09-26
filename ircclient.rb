@@ -1,3 +1,6 @@
+# Copyright (c) 2009 Daniel Danopia
+# All rights reserved.
+# 
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
 # 
@@ -140,16 +143,18 @@ class IRCClient
 	end
 	
 	def send_lusers
-		put_snumeric 251, ":There are 1 users and 2 invisible on 1 servers"
-		put_snumeric 252, "1 :operator(s) online"
-		put_snumeric 254, "4 :channels formed"
-		put_snumeric 255, ":I have 3 clients and 0 servers"
-		put_snumeric 265, ":Current Local Users: 3  Max: 9"
-		put_snumeric 266, ":Current Global Users: 3  Max: 5"
+		opers = $server.clients.select{|user|user.opered}.size
+		invisible = $server.clients.select{|user|user.has_umode?('i')}.size
+		total = $server.clients.size
+		put_snumeric 251, ":There are #{total - invisible} users and #{invisible} invisible on 1 servers"
+		put_snumeric 252, "#{opers} :operator(s) online"
+		put_snumeric 254, "#{$server.channels.size} :channels formed"
+		put_snumeric 255, ":I have #{total} clients and 0 servers"
+		put_snumeric 265, ":Current Local Users: #{total}  Max: #{total}"
+		put_snumeric 266, ":Current Global Users: #{total}  Max: #{total}"
 	end
 
 	def get_motd
-		motd = nil
 		begin
 			filename = ServerConfig.motd_file
 			return File.new(filename).read
@@ -189,10 +194,8 @@ class IRCClient
 		end
 		send_topic(channel)
 		send_names(channel)
-		#>> :Silicon.EighthBit.net 352 danopia #bitcast danopia danopia::EighthBit::staff Silicon.EighthBit.net danopia Hr* :0 Daniel Danopia
-		#>> :Silicon.EighthBit.net 352 danopia #bitcast nixeagle 9F3ADEED.AC9A3767.180762F4.IP Silicon.EighthBit.net nixeagle Gr* :0 James
-		#>> :Silicon.EighthBit.net 352 danopia #bitcast CodeBlock CodeBlock::EighthBit::staff Platinum.EighthBit.net CodeBlock Hr*@ :1 CodeBlock
 	end
+	
 	def send_topic(channel, detailed=false)
 		if not channel.topic
 			put_snumeric 331, "#{channel.name} :No topic is set." if detailed
@@ -383,6 +386,8 @@ class IRCClient
 						end
 					end
 				end
+				
+				my_channels = self.channels
 				$server.channels.each do |channel|
 					next if channel.has_any_mode?('ps') && !my_channels.include?(channel) && !@opered
 					next if pattern && !(channel.name =~ pattern)
@@ -575,7 +580,7 @@ class IRCClient
   		end
   		true
   	end
-  	puts ":#{path} MODE #{@nick} :#{str}"
+  	puts ":#{path} MODE #{@nick} :#{str}" if str && str.size > 0
   	str
   end
   def change_chmode(channel, changes_str, params=[])
@@ -622,12 +627,6 @@ class IRCClient
 				to_set = nil
 				
 				case char
-					when 'q'; list = channel.owners; param = IRCClient.find(param)
-					when 'a'; list = channel.protecteds; param = IRCClient.find(param)
-					when 'o'; list = channel.ops; param = IRCClient.find(param)
-					when 'h'; list = channel.halfops; param = IRCClient.find(param)
-					when 'v'; list = channel.voices; param = IRCClient.find(param)
-					
 					when 'b'; list = channel.bans
 					when 'e'; list = channel.excepts
 					when 'I'; list = channel.invex
@@ -648,7 +647,7 @@ class IRCClient
   		end
   		true
   	end
-  	channel.send_to_all ":#{path} MODE #{channel.name} :#{str}"
+  	channel.send_to_all ":#{path} MODE #{channel.name} :#{str}" if str && str.size > 0
   	str
   end
   
@@ -666,7 +665,7 @@ class IRCClient
   			ret = yield(add, mode_chr, nil)
   			if ret == :need_param && params[0]
   				new_params << params[0]
-  				ret = yield(add, mode_chr, params.shift)
+  				ret = yield(add, mode_chr, params.shift || :none)
   			end
   			if !ret || ret == :need_param
 				elsif add

@@ -1,3 +1,6 @@
+# Copyright (c) 2009 Daniel Danopia
+# All rights reserved.
+# 
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
 # 
@@ -26,14 +29,14 @@
 require 'socket'
 
 class IRCServer
-  attr_accessor :debug, :clients, :channels, :name, :maxConnections, :listeners, :listen_socks, :socks, :running
+  attr_accessor :debug, :clients, :channels, :name, :max_clients, :listeners, :listen_socks, :socks, :running
   
 	def initialize(name=nil)
     @debug = true
     @clients = []
     @channels = []
     @name = name
-    @maxConnections = maxConnections
+    @max_clients = 20 # TODO: Is this used?
     @listeners = []
     @listen_socks = []
 		@socks = []
@@ -141,5 +144,15 @@ class IRCServer
 	def remove_sock(sock)
 		@socks.delete sock
 		@clients.delete sock.client
+	end
+	
+	
+	# Helper socks for client instances to use
+	
+	def validate_nick(nick)
+		nick =~ /^[a-zA-Z\[\]_|`^][a-zA-Z0-9\[\]_|`^]{0,#{ServerConfig.max_nick_length.to_i - 1}}$/
+	end
+	def validate_channel(channel)
+		channel =~ /^\#[a-zA-Z0-9`~!@\#$%^&*\(\)\'";|}{\]\[.<>?]{0,#{ServerConfig.max_channel_length.to_i - 2}}$/
 	end
 end
