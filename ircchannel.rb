@@ -56,6 +56,8 @@ class IRCChannel
 	end
 
 	def self.find(name)
+		return name if name.is_a?(IRCChannel)
+		
 		name = name.downcase
 		$server.channels.each do |channel|
 			return channel if channel.name.downcase == name
@@ -64,6 +66,8 @@ class IRCChannel
 	end
 
 	def self.find_or_create(name)
+		return name if name.is_a?(IRCChannel)
+		
 		channel = IRCChannel.find name
 		return channel if channel
 		
@@ -73,12 +77,12 @@ class IRCChannel
 	end
 	
 	def send_to_all(msg)
-		users.each do |user|
+		@users.each do |user|
 			user.puts msg
 		end
 	end
 	def send_to_all_except(nontarget, msg)
-		users.each do |user|
+		@users.each do |user|
 			user.puts msg unless user == nontarget
 		end
 	end
@@ -94,25 +98,32 @@ class IRCChannel
 	end
 	
 	def message(sender, message)
-		send_to_all_except sender, ":#{sender.path} PRIVMSG #{name} :#{message}"
+		send_to_all_except sender, ":#{sender.path} PRIVMSG #{@name} :#{message}"
 	end
 	def notice(sender, message)
-		send_to_all_except sender, ":#{sender.path} NOTICE #{name} :#{message}"
+		send_to_all_except sender, ":#{sender.path} NOTICE #{@name} :#{message}"
+	end
+	
+	def join(client)
+		@users << client
+		send_to_all ":#{client.path} JOIN :#{@name}"
 	end
 	
 	def part(client, message='Leaving')
-		send_to_all ":#{client.path} PART #{name} :#{message}"
+		send_to_all ":#{client.path} PART #{@name} :#{message}"
+		remove client
+	end
+	
+	def kick(client, kicker, reason = nil)
+		reason &&= " :#{reason}" # prepend ' :' to reason unless it is nil
+		send_to_all ":#{kicker} KICK #{@name} #{client.nick}#{reason}"
 		remove client
 	end
 	
 	def remove(client)
-		@users.delete(client)
-		
-		@owners.delete(client)
-		@protecteds.delete(client)
-		@ops.delete(client)
-		@halfops.delete(client)
-		@voices.delete(client)
+		[@users, @owners, @protecteds, @ops, @halfops, @voices].each do |list|
+			list.delete(client)
+		end
 		
 		destroy('Channel empty') if empty?
 	end
@@ -128,11 +139,18 @@ class IRCChannel
 		$server.channels.delete self
 	end
 	
+	def set_topic(topic, author)
+		@topic = topic
+		@topic_timestamp = Time.now
+		@topic_author = author.nick
+		send_to_all ":#{author} TOPIC #{@name} :#{topic}"
+	end
+	
 	def has_mode?(mode)
 		@modes.include? mode
 	end
 	def has_any_mode?(modes)
-		modes.split('').each do |mode|
+		@modes.split('').each do |mode|
 			return true if has_mode?(mode)
 		end
 		false

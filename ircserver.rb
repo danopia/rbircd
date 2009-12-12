@@ -146,7 +146,6 @@ class IRCServer
 		@clients.delete sock.client
 	end
 	
-	
 	# Helper socks for client instances to use
 	
 	def validate_nick(nick)
