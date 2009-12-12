@@ -25,27 +25,16 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-# Thanks to Tsion for the Server class
-require 'socket'
-
 class IRCServer
-  attr_accessor :debug, :clients, :channels, :name, :max_clients, :listeners, :listen_socks, :socks, :running
+  attr_accessor :debug, :clients, :channels, :name, :socks, :running
   
 	def initialize(name=nil)
     @debug = true
     @clients = []
     @channels = []
     @name = name
-    @max_clients = 20 # TODO: Is this used?
-    @listeners = []
-    @listen_socks = []
 		@socks = []
 		@running = false
-	end
-	
-	def add_listener(host=nil, port=6667)
-		@listeners << [host || '0.0.0.0', port]
-		@listen_socks << TCPServer.new(host || '0.0.0.0', port) if @running
 	end
 	
   def log(msg)
@@ -54,89 +43,6 @@ class IRCServer
   def log_nick(nick, msg)
     log "#{@host}:#{@port} #{nick}\t%s" % msg
   end
-	
-	def run
-		begin
-			if @listeners.empty?
-				log 'No listeners defined!'
-				return false
-			end
-			
-			# Create TCPServers for each listener
-			@listen_socks.clear
-			@listeners.each do |listener|
-				@listen_socks << TCPServer.new(listener[0], listener[1])
-			end
-			
-			@running = true
-			log("Server started with #{@listen_socks.size} listener" +
-				(@listen_socks.size == 1 ? '' : 's'))
-
-			#BasicSocket.do_not_reverse_lookup = true
-
-			loop do
-				active = nil
-				remove_closed
-				begin
-					active = select(@listen_socks + @socks)[0][0]
-				rescue IOError
-					next # next time will remove closed sockets again
-				end
-				next if not active
-				
-				if @listen_socks.include? active
-					new_sock = active.accept
-					new_client = IRCClient.new new_sock
-					log "connected: #{new_client.ip}" if @debug
-					@socks << new_sock
-					@clients << new_client
-				else
-					if active.eof?
-						active.client.skill
-						@clients.delete(active.client)
-						@socks.delete(active)
-						log "disconnected: #{active.client.ip}" if @debug
-						active.close
-						next
-					end
-					line = active.gets
-					if line == '' or line == nil
-						log 'FAILURE'
-					else
-						begin
-							active.client.handle_packet line
-						rescue => error
-							log error.to_s
-							active.client.skill 'Error occured'
-							@clients.delete(active.client)
-							@socks.delete(active)
-							log "disconnected due to error: #{active.client.ip}"
-						end
-					end
-				end
-			end
-		
-		#rescue => error
-			log error.to_s
-			@socks.each do |sock|
-				sock.client.skill 'Server is going down NOW!'
-			end
-			@socks.clear
-			@listen_socks.each do |listener|
-				listener.close
-			end
-			@listen_socks.clear
-			@running = false
-			p error
-			error.throw
-		end
-	end
-	
-	def remove_closed
-		@socks.reject! do |sock|
-			sock.closed? #|| sock.eof?
-		end
-	end
 	
 	def remove_client(client)
 		remove_sock client.io
@@ -151,7 +57,7 @@ class IRCServer
 	def validate_nick(nick)
 		nick =~ /^[a-zA-Z\[\]_|`^][a-zA-Z0-9\[\]_|`^]{0,#{ServerConfig.max_nick_length.to_i - 1}}$/
 	end
-	def validate_channel(channel)
+	def validate_chan(channel)
 		channel =~ /^\#[a-zA-Z0-9`~!@\#$%^&*\(\)\'";|}{\]\[.<>?]{0,#{ServerConfig.max_channel_length.to_i - 2}}$/
 	end
 end

@@ -44,14 +44,7 @@ class IRCClient
 		@created_at = Time.now
 		@modified_at = Time.now
 		
-		@addr = io.peeraddr
-		@ip = @addr[3]
-		@host = @addr[2]
-		
-		io.instance_variable_set('@client', self)
-		def io.client
-			@client
-		end
+		@port, @ip = Socket.unpack_sockaddr_in io.get_peername
 		
 		puts ":#{$server.name} NOTICE AUTH :*** Looking up your hostname..."
 		puts ":#{$server.name} NOTICE AUTH :*** Found your hostname"
@@ -114,7 +107,7 @@ class IRCClient
 	end
 	
 	def puts(msg)
-		@io.puts msg
+		@io.send_line msg
 	end
 	
 	def send_numeric(numeric, text)
@@ -191,18 +184,18 @@ class IRCClient
 		end
 	end
 	
-	def join(channel)
-		channel = IRCChannel.find(channel)
+	def join(target)
+		channel = IRCChannel.find(target)
 		
-		if !$server.validate_chan(channel)
-			send_numeric 432, "#{args[1]} :No such channel"
+		if !$server.validate_chan(target)
+			send_numeric 432, "#{target} :No such channel"
 		elsif channels.size >= ServerConfig.max_channels_per_user.to_i
-			send_numeric 405, "#{args[1]} :You have joined too many channels"
-		elsif channel.has_mode?('i')
-			send_numeric 473, "#{args[1]} :Cannot join channel (+i)"
+			send_numeric 405, "#{target} :You have joined too many channels"
+		elsif channel && channel.has_mode?('i')
+			send_numeric 473, "#{target} :Cannot join channel (+i)"
 		end
 		
-		channel ||= IRCChannel.find_or_create(channel)
+		channel ||= IRCChannel.find_or_create(target)
 		return(channel) if channel.users.include?(self)
 		channel.join self
 		send_topic(channel)
@@ -354,7 +347,7 @@ class IRCClient
 					send_numeric 401, args[1] + ' :No such nick/channel'
 				else
 					send_numeric 311, "#{target.nick} #{target.ident} #{target.host} * :#{target.realname}"
-					send_numeric 378, "#{target.nick} :is connecting from *@#{target.addr[2]} #{target.ip}"
+					send_numeric 378, "#{target.nick} :is connecting from *@#{target.ip} #{target.ip}"
 					send_numeric 379, "#{target.nick} :is using modes +#{target.umodes}" if target == self || @opered
 					
 					channels = target.channels
@@ -466,13 +459,12 @@ class IRCClient
 			when 'invite'
 				if args.size < 3
 					send_numeric 461, 'INVITE :Not enough parameters'
-				else
+				end
 				user = IRCClient.find(args[1])
 				channel = IRCChannel.find(args[2])
 				
 				if target == nil
 					send_numeric 401, args[1] + ' :No such nick/channel'
-				if target == nil
 					target = IRCClient.find(args[1])
 					if target == nil
 						send_numeric 401, "#{args[1]} :No such nick/channel"

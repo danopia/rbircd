@@ -1,5 +1,3 @@
-#!/usr/bin/env ruby
-
 # Copyright (c) 2009 Daniel Danopia
 # All rights reserved.
 # 
@@ -28,42 +26,49 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 require 'rubygems'
-require 'yaml'
-require 'daemons'
 require 'eventmachine'
+require 'socket'
 
-require 'ircserver'
-require 'ircchannel'
-require 'ircclient'
-require 'ircconnection'
-
-class ServerConfig
-	def self.load(filename)
-		@yaml = YAML.load(File.open(filename))
-	end
+class IRCConnection < EventMachine::Connection
+	attr_accessor :server, :client, :port, :ip
 	
-	# Shorter way to access data
-	def self.method_missing(m, *args, &blck)
-		raise ArgumentError, "wrong number of arguments (#{args.length} for 0)" if args.length > 0
-		raise NoMethodError, "undefined method '#{m}' for #{self}" unless @yaml.has_key?(m.to_s.gsub('_', '-'))
-		@yaml[m.to_s.gsub('_', '-')]
-	end
-end
-
-# Load the config
-ServerConfig.load('rbircd.conf')
-
-# Daemons.daemonize
-$server = IRCServer.new(ServerConfig.server_name)
-
-EventMachine::run do
-	ServerConfig.listens.each do |listener|
-		EventMachine::start_server listener['interface'], listener['port'].to_i, IRCConnection, $server
-	end
+	def initialize server
+		super()
+		
+		@server = server
+		@client = IRCClient.new self
+		@buffer	= ''
+		
+		@server.socks << self
+		@server.clients << @client
+  end
 	
-	EventMachine::add_periodic_timer 60 do
-		$server.socks.each do |conn|
-			conn.send_line "PING :#{$server.name}"
-		end
+  def post_init
+    sleep 0.25
+    @port, @ip = Socket.unpack_sockaddr_in get_peername
+    puts "Connected to #{@ip}:#{@port}"
+  end
+		
+	def send_line params
+		params = params.join ' ' if params.is_a? Array
+		send_data "#{params.gsub("\n", '')}\n"
 	end
+
+  def receive_data data
+    @buffer += data
+    while @buffer.include? "\n"
+    	receive_line @buffer.slice!(0, @buffer.index("\n")+1).chomp
+    end
+  end
+  
+  def receive_line line
+  	puts line
+  	@client.handle_packet line
+  end
+  
+  def unbind
+  	puts "connection closed to #{@ip}:#{@port}"
+		@server.socks.delete self
+		@server.clients.delete @client
+  end
 end
