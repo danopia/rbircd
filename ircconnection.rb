@@ -67,8 +67,8 @@ class IRCConnection < EventMachine::Connection
   end
   
   def unbind
+  	@client.close 'Client disconnected'
   	puts "connection closed to #{@ip}:#{@port}"
-		@server.socks.delete self
-		@server.clients.delete @client
+		@server.remove_sock self
   end
 end

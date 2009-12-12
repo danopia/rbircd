@@ -32,10 +32,13 @@ require 'yaml'
 require 'daemons'
 require 'eventmachine'
 
-require 'ircserver'
-require 'ircchannel'
-require 'ircclient'
-require 'ircconnection'
+def reload!
+	load 'ircserver.rb'
+	load 'ircchannel.rb'
+	load 'ircclient.rb'
+	load 'ircconnection.rb'
+end
+reload!
 
 class ServerConfig
 	def self.load(filename)

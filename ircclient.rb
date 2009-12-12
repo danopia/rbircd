@@ -86,18 +86,13 @@ class IRCClient
 			@dead = true
 		end
 		
-		begin
-			puts "ERROR :Closing Link: #{@nick}[#{@ip}] (#{reason})"
-			@io.close
-		rescue
-		end
-		
-		$server.remove_sock io
+		puts "ERROR :Closing Link: #{@nick}[#{@ip}] (#{reason})"
+		@io.close_connection
 	end
 	
 	def rawkill(killer, message = 'Client quit')
 		puts(":#{killer} KILL #{@nick} :#{message}")
-		close reason
+		close message
 	end
 	def kill(killer, reason = 'Client quit')
 		rawkill killer, "#{$server.name}!#{killer.host}!#{killer.nick} (#{reason})"
@@ -189,10 +184,13 @@ class IRCClient
 		
 		if !$server.validate_chan(target)
 			send_numeric 432, "#{target} :No such channel"
+			return
 		elsif channels.size >= ServerConfig.max_channels_per_user.to_i
 			send_numeric 405, "#{target} :You have joined too many channels"
+			return
 		elsif channel && channel.has_mode?('i')
 			send_numeric 473, "#{target} :Cannot join channel (+i)"
+			return
 		end
 		
 		channel ||= IRCChannel.find_or_create(target)
@@ -277,6 +275,12 @@ class IRCClient
 		
 		command = args[0].downcase
 		$server.log_nick(@nick, command)
+		
+		if !is_registered? && !['user', 'nick', 'quit', 'pong'].include?(command)
+			puts ":#{$server.name} 451 #{command.upcase} :You have not registered"
+			return
+		end
+		
 		case command
 		
 			when 'user'
@@ -443,6 +447,9 @@ class IRCClient
 			when 'motd'
 				send_motd
 				
+			when 'suicide'
+				commit_suicide!
+				
 			when 'privmsg'
 				target = IRCChannel.find(args[1])
 				if target == nil
@@ -504,6 +511,9 @@ class IRCClient
 				else
 					part channel, args[2] || 'Leaving'
 				end
+				
+			when 'reload'
+				reload!
 				
 			when 'kick'
 				if args.size < 3
@@ -584,6 +594,9 @@ class IRCClient
 			else
 				send_numeric 421, command + ' :Unknown command'
 		end
+	
+	rescue => ex
+		skill "Server-side #{ex.class}: #{ex.message}"
   end
   
   def change_umode(changes_str, params=[])
