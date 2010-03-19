@@ -26,28 +26,27 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 class IRCClient
-  attr_reader :nick, :ident, :realname, :io, :addr, :ip, :host, :dead, :umodes
+  attr_reader :nick, :ident, :realname, :conn, :addr, :ip, :host, :dead, :umodes, :server
   attr_accessor :opered, :away, :created_at, :modified_at
   
-	def initialize io
+	def initialize server, conn
+		@server = server
+		@conn = conn
+		
 		@nick = '*'
-		@io = io
 		@umodes = ''
+		
 		@protocols = []
 		@watch = []
 		@silence = []
+		
 		@created_at = Time.now
 		@modified_at = Time.now
 		
-		@port, @ip = Socket.unpack_sockaddr_in io.get_peername
+		@port, @ip = Socket.unpack_sockaddr_in conn.get_peername
 		
-		puts ":#{$server.name} NOTICE AUTH :*** Looking up your hostname..."
-		puts ":#{$server.name} NOTICE AUTH :*** Found your hostname"
-	end
-	
-	def self.find nick
-		nick = nick.downcase
-		$server.clients.find {|client| client.nick.downcase == nick }
+		puts ":#{@server.name} NOTICE AUTH :*** Looking up your hostname..."
+		puts ":#{@server.name} NOTICE AUTH :*** Found your hostname"
 	end
 
 	def is_registered?
@@ -59,8 +58,8 @@ class IRCClient
 		change_umode '+iwx'
 	end
  
-	def close(reason='Client quit')
-		$server.log_nick @nick, "User disconnected (#{reason})."
+	def close reason='Client quit'
+		@server.log_nick @nick, "User disconnected (#{reason})."
 		return if @dead
 		
 		updated_users = [self]
@@ -75,7 +74,7 @@ class IRCClient
 		@dead = true
 		
 		puts "ERROR :Closing Link: #{@nick}[#{@ip}] (#{reason})"
-		@io.close_connection
+		@conn.close_connection
 	end
 	
 	def rawkill(killer, message='Client quit')
@@ -83,10 +82,10 @@ class IRCClient
 		close message
 	end
 	def kill(killer, reason='Client quit')
-		rawkill killer, "#{$server.name}!#{killer.host}!#{killer.nick} (#{reason})"
+		rawkill killer, "#{@server.name}!#{killer.host}!#{killer.nick} (#{reason})"
 	end
 	def skill(reason='Client quit')
-		rawkill $server.name, "#{$server.name} #{reason}"
+		rawkill @server.name, "#{@server.name} #{reason}"
 	end
 	
 	def puts msg
@@ -94,7 +93,7 @@ class IRCClient
 	end
 	
 	def send_numeric numeric, text
-		puts [":#{$server.name}", numeric, @nick, text].join(' ')
+		puts [":#{@server.name}", numeric, @nick, text].join(' ')
 	end
 	
 	def path
@@ -103,9 +102,9 @@ class IRCClient
 	
 	def send_welcome_flood()
 		send_numeric '001', ":Welcome to the #{ServerConfig.network_name} IRC Network #{path}"
-		send_numeric '002', ":Your host is #{$server.name}, running version RubyIRCd0.1.0"
+		send_numeric '002', ":Your host is #{@server.name}, running version RubyIRCd0.1.0"
 		send_numeric '003', ":This server was created Tue Dec 23 2008 at 15:18:59 EST"
-		send_numeric '004', "#{$server.name} RubyIRCd0.1.0 iowghraAsORTVSxNCWqBzvdHtGp lvhopsmntikrRcaqOALQbSeIKVfMCuzNTGj"
+		send_numeric '004', "#{@server.name} RubyIRCd0.1.0 iowghraAsORTVSxNCWqBzvdHtGp lvhopsmntikrRcaqOALQbSeIKVfMCuzNTGj"
 
 		send_version
 		send_lusers
@@ -114,10 +113,10 @@ class IRCClient
 	
 	def send_version(detailed=false)
 		if detailed
-			send_numeric 351, "RubyIRCd0.1.0. #{$server.name} :FhiXeOoZE [Linux box 2.6.18-128.1.1.el5.028stab062.3 #1 SMP Sun May 10 18:54:51 MSD 2009 i686=2309]"
-			puts ":#{$server.name} NOTICE #{@nick} :OpenSSL 0.9.8k 25 Mar 2009"
-			puts ":#{$server.name} NOTICE #{@nick} :zlib 1.2.3"
-			puts ":#{$server.name} NOTICE #{@nick} :libcurl/7.19.4 GnuTLS/2.6.6 zlib/1.2.3 c-ares/1.6.0 libssh2/0.18"
+			send_numeric 351, "RubyIRCd0.1.0. #{@server.name} :FhiXeOoZE [Linux box 2.6.18-128.1.1.el5.028stab062.3 #1 SMP Sun May 10 18:54:51 MSD 2009 i686=2309]"
+			puts ":#{@server.name} NOTICE #{@nick} :OpenSSL 0.9.8k 25 Mar 2009"
+			puts ":#{@server.name} NOTICE #{@nick} :zlib 1.2.3"
+			puts ":#{@server.name} NOTICE #{@nick} :libcurl/7.19.4 GnuTLS/2.6.6 zlib/1.2.3 c-ares/1.6.0 libssh2/0.18"
 		end
 		
 		send_numeric '005', "NAMESX SAFELIST HCN MAXCHANNELS=#{ServerConfig.max_channels} CHANLIMIT=#:#{ServerConfig.max_channels_per_user} MAXLIST=b:60,e:60,I:60 NICKLEN=#{ServerConfig.max_nick_length} CHANNELLEN=#{ServerConfig.max_channel_length} TOPICLEN=#{ServerConfig.max_topic_length} KICKLEN=#{ServerConfig.max_kick_length} AWAYLEN=#{ServerConfig.max_away_length} MAXTARGETS=#{ServerConfig.max_targets} WALLCHOPS :are supported by this server"
@@ -126,13 +125,13 @@ class IRCClient
 	end
 	
 	def send_lusers
-		opers = $server.clients.select {|user| user.opered }.size
-		invisible = $server.clients.select {|user| user.has_umode?('i') }.size
-		total = $server.clients.size
+		opers = @server.clients.select {|user| user.opered }.size
+		invisible = @server.clients.select {|user| user.has_umode?('i') }.size
+		total = @server.clients.size
 		
 		send_numeric 251, ":There are #{total - invisible} users and #{invisible} invisible on 1 servers"
 		send_numeric 252, "#{opers} :operator(s) online"
-		send_numeric 254, "#{$server.channels.size} :channels formed"
+		send_numeric 254, "#{@server.channels.size} :channels formed"
 		send_numeric 255, ":I have #{total} clients and 0 servers"
 		send_numeric 265, ":Current Local Users: #{total}  Max: #{total}"
 		send_numeric 266, ":Current Global Users: #{total}  Max: #{total}"
@@ -159,7 +158,7 @@ class IRCClient
 		motd = get_motd
 		
 		if motd
-			send_numeric 375, ":- #{$server.name} Message of the Day -"
+			send_numeric 375, ":- #{@server.name} Message of the Day -"
 			motd.each_line {|line| send_numeric 372, ":- #{line}" }
 			send_numeric 376, ':End of /MOTD command.'
 		else
@@ -168,16 +167,16 @@ class IRCClient
 	end
 	
 	def join target
-		channel = IRCChannel.find target
+		channel = @server.find_channel target
 		
-		if !$server.validate_chan(target)
+		if !@server.validate_chan(target)
 			send_numeric 432, "#{target} :No such channel"
 		elsif channels.size >= ServerConfig.max_channels_per_user.to_i
 			send_numeric 405, "#{target} :You have joined too many channels"
 		elsif channel && channel.has_mode?('i')
 			send_numeric 473, "#{target} :Cannot join channel (+i)"
 		else
-			channel ||= IRCChannel.find_or_create(target)
+			channel ||= @server.find_or_create_channel(target)
 			return channel if channel.users.include?(self)
 			channel.join self
 			send_topic channel
@@ -247,7 +246,7 @@ class IRCClient
 	end
 	
 	def channels
-		$server.channels.select do |channel|
+		@server.channels.select do |channel|
 			channel.users.include? self
 		end
 	end
@@ -261,7 +260,7 @@ class IRCClient
 		args << raw_parts[1] if raw_parts.size > 1
 		
 		command = args[0].downcase
-		$server.log_nick @nick, command
+		@server.log_nick @nick, command
 		
 		if !is_registered? && !['user', 'nick', 'quit', 'pong'].include?(command)
 			send_numeric 451, "#{command.upcase} :You have not registered"
@@ -284,9 +283,9 @@ class IRCClient
 			when 'nick'
 				if args.size < 2 || args[1].size < 1
 					send_numeric 431, ':No nickname given'
-				elsif !$server.validate_nick(args[1])
+				elsif !@server.validate_nick(args[1])
 					send_numeric 432, "#{args[1]} :Erroneous Nickname: Illegal characters"
-				elsif IRCClient.find args[1]
+				elsif @server.find_user args[1]
 					send_numeric 433, "#{args[1]} :Nickname is already in use."
 				else
 					self.nick = args[1]
@@ -320,7 +319,7 @@ class IRCClient
 				end
 				
 			when 'kill'
-				target = IRCClient.find args[1]
+				target = @server.find_user args[1]
 				
 				if args.size < 3
 					send_numeric 461, 'KILL :Not enough parameters'
@@ -333,7 +332,7 @@ class IRCClient
 				end
 				
 			when 'whois'
-				target = IRCClient.find args[1]
+				target = @server.find_user args[1]
 				if !target
 					send_numeric 401, args[1] + ' :No such nick/channel'
 					return
@@ -355,7 +354,7 @@ class IRCClient
 				send_numeric 319, "#{target.nick} :#{channels.join(' ')}" if channels.any?
 				
 				send_numeric 301, "#{target.nick} :#{target.away}" if target.away
-				send_numeric 312, "#{target.nick} #{$server.name} :#{ServerConfig.server_desc}"
+				send_numeric 312, "#{target.nick} #{@server.name} :#{ServerConfig.server_desc}"
 				send_numeric 317, "#{target.nick} #{Time.now.to_i - @modified_at.to_i} #{@created_at.to_i} :seconds idle, signon time"
 				send_numeric 318, "#{target.nick} :End of /WHOIS list."
 				
@@ -383,7 +382,7 @@ class IRCClient
 				end
 				
 				my_channels = self.channels
-				$server.channels.each do |channel|
+				@server.channels.each do |channel|
 					next if channel.has_any_mode?('ps') && !my_channels.include?(channel) && !@opered
 					next if pattern && !(channel.name =~ pattern)
 					next if not_pattern && channel.name =~ not_pattern
@@ -400,10 +399,10 @@ class IRCClient
 				users = []
 				
 				if args[1]
-					channel = IRCChannel.find(args[1])
+					channel = @server.find_channel args[1]
 					users = channel.users if channel
 				else
-					users = $server.clients
+					users = @server.clients
 				end
 				
 				channel_name = channel && channel.name
@@ -424,7 +423,7 @@ class IRCClient
 					prefix += '!' if user.has_umode?('H') && @opered
 					prefix += '?' if user.has_umode?('i')
 					
-					send_numeric 352, "#{this_channel} #{user.nick} #{user.host} #{$server.name} #{user.ident} #{prefix} :0 #{user.realname}"
+					send_numeric 352, "#{this_channel} #{user.nick} #{user.host} #{@server.name} #{user.ident} #{prefix} :0 #{user.realname}"
 				end
 				send_numeric 315, "#{args[1] || '*'} :End of /WHO list."
 			
@@ -441,7 +440,7 @@ class IRCClient
 				commit_suicide!
 				
 			when 'privmsg'
-				target = IRCChannel.find(args[1]) || IRCClient.find(args[1])
+				target = @server.find_channel(args[1]) || @server.find_user(args[1])
 				
 				if target.is_a? IRCChannel
 					target.message self, args[2]
@@ -455,8 +454,8 @@ class IRCClient
 				#~ if args.size < 3
 					#~ send_numeric 461, 'INVITE :Not enough parameters'.
 				#~ else
-					#~ user = IRCClient.find args[1]
-					#~ channel = IRCChannel.find args[2]
+					#~ user = @server.find_user args[1]
+					#~ channel = @server.find_channel args[2]
 					#~ 
 					#~ if !target
 						#~ send_numeric 401, "#{args[1]} :No such nick/channel"
@@ -468,7 +467,7 @@ class IRCClient
 				#~ end
 				
 			when 'notice'
-				target = IRCChannel.find(args[1]) || IRCClient.find(args[1])
+				target = @server.find_channel(args[1]) || @server.find_user(args[1])
 				
 				if target.is_a? IRCChannel
 					target.notice self, args[2]
@@ -486,7 +485,7 @@ class IRCClient
 				end
 				
 			when 'part'
-				channel = IRCChannel.find args[1]
+				channel = @server.find_channel args[1]
 				if !channel
 					send_numeric 403, args[1] + ' :No such channel'
 				elsif channel.users.include? self
@@ -504,8 +503,8 @@ class IRCClient
 					return
 				end
 				
-				channel = IRCChannel.find(args[1])
-				target = IRCClient.find(args[2])
+				channel = @server.find_channel args[1]
+				target = @server.find_user args[2]
 				
 				if !channel
 					send_numeric 403, "#{args[1]} :No such channel"
@@ -520,11 +519,11 @@ class IRCClient
 				end
 				
 			when 'names'
-				channel = IRCChannel.find args[1]
+				channel = @server.find_channel args[1]
 				send_names channel
 				
 			when 'topic'
-				channel = IRCChannel.find args[1]
+				channel = @server.find_channel args[1]
 				if args.size == 2
 					send_topic channel, true # Detailed (send no-topic-set if no topic)
 				elsif channel.has_mode?('t') && !is_op_or_better_on(channel)
@@ -537,7 +536,7 @@ class IRCClient
 				# :Silicon.EighthBit.net 482 danopia #offtopic :You're not channel operator
 				# :Silicon.EighthBit.net 008 danopia :Server notice mask (+kcfvGqso)
 				
-				target = IRCChannel.find(args[1]) || IRCClient.find(args[1])
+				target = @server.find_channel(args[1]) || @server.find_user(args[1])
 				
 				if target.is_a? IRCChannel
 					if args.size == 2
@@ -562,10 +561,10 @@ class IRCClient
 			when 'pong' # do nothing
 			when 'ping'
 				target = args[1]
-				puts ":#{$server.name} PONG #{$server.name} :#{target}"
+				puts ":#{@server.name} PONG #{@server.name} :#{target}"
 				
 			when 'userhost'
-				target = IRCClient.find args[1]
+				target = @server.find_user args[1]
 				if target
 					send_numeric 302, ":#{target.nick}=+#{target.ident}@#{target.ip}"
 				else

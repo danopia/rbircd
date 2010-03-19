@@ -58,16 +58,17 @@ end
 ServerConfig.load 'rbircd.conf'
 
 # Daemons.daemonize
-$server = IRCServer.new ServerConfig.server_name
+
+server = IRCServer.new ServerConfig.server_name
 
 EventMachine::run do
 	ServerConfig.listens.each do |listener|
-		EventMachine::start_server listener['interface'], listener['port'].to_i, IRCConnection, $server
+		EventMachine::start_server listener['interface'], listener['port'].to_i, IRCConnection, server
 	end
 	
 	EventMachine::add_periodic_timer 60 do
-		$server.socks.each do |conn|
-			conn.send_line "PING :#{$server.name}"
+		server.socks.each do |conn|
+			conn.send_line "PING :#{server.name}"
 		end
 	end
 end

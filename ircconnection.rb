@@ -34,7 +34,7 @@ class IRCConnection < LineConnection
     super()
 
     @server = server
-    @client = IRCClient.new self
+    @client = IRCClient.new server, self
 
     @server.socks << self
     @server.clients << @client

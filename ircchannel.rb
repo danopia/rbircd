@@ -50,24 +50,6 @@ class IRCChannel
 		@modes = 'ns'
 		@mode_timestamp = Time.now
 	end
-
-	def self.find name
-		return name if name.is_a? IRCChannel
-		
-		name = name.downcase
-		$server.channels.find {|channel| channel.name.downcase == name }
-	end
-
-	def self.find_or_create name
-		return name if name.is_a? IRCChannel
-		
-		channel = IRCChannel.find name
-		return channel if channel
-		
-		channel = IRCChannel.new name
-		$server.channels << channel
-		channel
-	end
 	
 	def send_to_all msg
 		@users.each {|user| user.puts msg }
@@ -114,19 +96,10 @@ class IRCChannel
 		[@users, @owners, @protecteds, @ops, @halfops, @voices].each do |list|
 			list.delete client
 		end
-		
-		destroy 'Channel empty' if empty?
 	end
 	
 	def empty?
 		@users.empty?
-	end
-	
-	def destroy reason='OM NOM NOM'
-		@users.each do |user|
-			user.kicked_from self, $server.name, reason
-		end
-		$server.channels.delete self
 	end
 	
 	def set_topic topic, author

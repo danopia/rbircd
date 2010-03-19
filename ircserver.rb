@@ -53,6 +53,35 @@ class IRCServer
     @socks.delete sock
     @clients.delete sock.client
   end
+  
+  def find_user nick
+    return nick if nick.is_a? IRCClient
+    
+    nick = nick.downcase
+    @clients.find {|client| client.nick.downcase == nick }
+  end
+  def find_channel name
+    return name if name.is_a? IRCChannel
+    
+    name = name.downcase
+    @channels.find {|chan| chan.name.downcase == name }
+  end
+  
+  def find_or_create_channel name
+    channel = find_channel name
+    return channel if channel
+
+    channel = IRCChannel.new name
+    @channels << channel
+    channel
+  end
+  
+  def destroy_channel channel, reason='OM NOM NOM'
+    channel.users.each do |user|
+      user.kicked_from channel, @name, reason
+    end
+    @channels.delete channel
+  end
 
   # Helper socks for client instances to use
 
