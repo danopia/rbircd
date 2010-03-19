@@ -1,4 +1,4 @@
-# Copyright (c) 2009 Daniel Danopia
+# Copyright (c) 2010 Daniel Danopia
 # All rights reserved.
 # 
 # Redistribution and use in source and binary forms, with or without
@@ -25,34 +25,41 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-require 'lineconnection'
+require 'rubygems'
+require 'eventmachine'
+require 'socket'
 
-class IRCConnection < LineConnection
-  attr_accessor :server, :client
+class LineConnection < EventMachine::Connection
+  attr_accessor :port, :ip
 
-  def initialize server
-    super()
+  def initialize
+    super
 
-    @server = server
-    @client = IRCClient.new self
-
-    @server.socks << self
-    @server.clients << @client
+    @buffer	= ''
   end
 
-  def send_line params
-    params = params.join ' ' if params.is_a? Array
-    super params
+  def post_init
+    sleep 0.25
+    @port, @ip = Socket.unpack_sockaddr_in get_peername
+    puts "Connected to #{@ip}:#{@port}"
+  end
+
+  def send_line line
+    send_data "#{line.gsub("\n", '')}\n"
+  end
+
+  def receive_data data
+    @buffer += data
+    while @buffer.include? "\n"
+      receive_line @buffer.slice!(0, @buffer.index("\n")+1).chomp
+    end
   end
 
   def receive_line line
     puts line
-    @client.handle_packet line
   end
 
   def unbind
-    super
-    @client.close 'Client disconnected'
-    @server.remove_sock self
+    puts "Connection closed to #{@ip}:#{@port}"
   end
 end
