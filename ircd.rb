@@ -63,7 +63,7 @@ server = IRCServer.new ServerConfig.server_name
 
 EventMachine::run do
 	ServerConfig.listens.each do |listener|
-		EventMachine::start_server listener['interface'], listener['port'].to_i, IRCConnection, server
+		EventMachine::start_server listener['interface'], listener['port'].to_i, IRCClient, server
 	end
 	
 	EventMachine::add_periodic_timer 60 do

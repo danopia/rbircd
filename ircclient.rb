@@ -25,13 +25,16 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-class IRCClient
-  attr_reader :nick, :ident, :realname, :conn, :addr, :ip, :host, :dead, :umodes, :server
-  attr_accessor :opered, :away, :created_at, :modified_at
-  
-	def initialize server, conn
-		@server = server
-		@conn = conn
+require 'lineconnection'
+
+class IRCClient < LineConnection
+  attr_accessor :server
+
+  def initialize server
+    super()
+
+    @server = server
+    @server.clients << self
 		
 		@nick = '*'
 		@umodes = ''
@@ -43,11 +46,21 @@ class IRCClient
 		@created_at = Time.now
 		@modified_at = Time.now
 		
-		@port, @ip = Socket.unpack_sockaddr_in conn.get_peername
+		@port, @ip = Socket.unpack_sockaddr_in get_peername
 		
 		send @server.name, :notice, 'AUTH', '*** Looking up your hostname...'
 		send @server.name, :notice, 'AUTH', '*** Found your hostname'
-	end
+  end
+
+  def unbind
+    super
+    close 'Client disconnected'
+    @server.remove_client self
+  end
+
+
+  attr_reader :nick, :ident, :realname, :conn, :addr, :ip, :host, :dead, :umodes, :server
+  attr_accessor :opered, :away, :created_at, :modified_at
 
 	def is_registered?
 		@nick != '*' && @ident
@@ -63,7 +76,7 @@ class IRCClient
 		return if @dead
 		
 		updated_users = [self]
-		self.channels.each do |channel|
+		self.channels.each_value do |channel|
 			channel.users.each do |user|
 				next if updated_users.include? user
 				user.send path, :quit, reason
@@ -74,7 +87,7 @@ class IRCClient
 		@dead = true
 		
 		send nil, :error, "Closing Link: #{@nick}[#{@ip}] (#{reason})"
-		@conn.close_connection
+		close_connection
 	end
 	
 	def rawkill killer, message='Client quit'
@@ -94,7 +107,7 @@ class IRCClient
 		args.unshift ":#{from}" if from
 		args.push ":#{args.pop}" if args.last.include?(' ')
 		
-		@conn.send_line args.join(' ')
+		send_line args.join(' ')
 	end
 	
 	def send_numeric numeric, *args
@@ -244,26 +257,32 @@ class IRCClient
 				end
 			end
 			
-			@nick = newnick # Changed last so that the path is right ^^
+			@server.users.delete @nick.downcase
+			@server.users[newnick.downcase] = self
+			
+			@nick = newnick # Changed last so that the path is right
 		else
 			@nick = newnick # Changed first so check_registration can see it
+			@server.users[@nick.downcase] = self
+			
 			check_registration
 		end
 	end
 	
 	def channels
-		@server.channels.select do |channel|
+		@server.channels.values.select do |channel|
 			channel.users.include? self
 		end
 	end
 	
-  def handle_packet line
+  def receive_line line
+		puts line if @server.debug
   	@modified_at = Time.now
   	
 		# Parse as per the RFC
-		raw_parts = line.chomp.split(' :', 2)
-		args = raw_parts[0].split(' ')
-		args << raw_parts[1] if raw_parts.size > 1
+		raw_parts = line.chomp.split ' :', 2
+		args = raw_parts.shift.split ' '
+		args << raw_parts.first if raw_parts.any?
 		
 		command = args[0].downcase
 		@server.log_nick @nick, command

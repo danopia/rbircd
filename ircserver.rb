@@ -26,14 +26,14 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 class IRCServer
-  attr_accessor :debug, :clients, :channels, :name, :socks, :running
+  attr_accessor :debug, :clients, :channels, :name, :users, :running
 
   def initialize name=nil
     @name = name
     
+    @users = {}
     @clients = []
-    @channels = []
-    @socks = []
+    @channels = {}
     
     @debug = true
     @running = false
@@ -47,40 +47,30 @@ class IRCServer
   end
 
   def remove_client client
-    remove_sock client.conn
-  end
-  def remove_sock sock
-    @socks.delete sock
-    @clients.delete sock.client
+    @users.delete client.nick if client.registered?
+    @clients.delete client
   end
   
   def find_user nick
     return nick if nick.is_a? IRCClient
-    
-    nick = nick.downcase
-    @clients.find {|client| client.nick.downcase == nick }
+    @clients[nick.downcase]
   end
+  
   def find_channel name
     return name if name.is_a? IRCChannel
-    
-    name = name.downcase
-    @channels.find {|chan| chan.name.downcase == name }
+    @channels[nick.downcase]
   end
   
   def find_or_create_channel name
-    channel = find_channel name
-    return channel if channel
-
-    channel = IRCChannel.new name
-    @channels << channel
-    channel
+    return name if name.is_a? IRCChannel
+    @channels[name.downcase] ||= IRCChannel.new name
   end
   
   def destroy_channel channel, reason='OM NOM NOM'
     channel.users.each do |user|
       user.kicked_from channel, @name, reason
     end
-    @channels.delete channel
+    @channels.delete channel.name.downcase
   end
 
   # Helper socks for client instances to use
