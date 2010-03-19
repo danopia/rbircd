@@ -284,7 +284,7 @@ class IRCClient < LineConnection
 		args = raw_parts.shift.split ' '
 		args << raw_parts.first if raw_parts.any?
 		
-		command = args[0].downcase
+		command = args.shift.downcase
 		@server.log_nick @nick, command
 		
 		if !is_registered? && !['user', 'nick', 'quit', 'pong'].include?(command)
@@ -295,39 +295,39 @@ class IRCClient < LineConnection
 		case command
 		
 			when 'user'
-				if args.size < 5
+				if args.size < 4
 					send_numeric 461, 'USER', 'Not enough parameters'
 				elsif is_registered?
 					send_numeric 462, 'You may not reregister'
 				else
-					@ident = args[1]
-					@realname = args[4]
+					@ident = args[0]
+					@realname = args[3]
 					check_registration
 				end
 		
 			when 'nick'
-				if args.size < 2 || args[1].size < 1
+				if args.empty? || args[1].size < 1
 					send_numeric 431, 'No nickname given'
-				elsif !@server.validate_nick(args[1])
-					send_numeric 432, args[1], 'Erroneous Nickname: Illegal characters'
-				elsif @server.find_user args[1]
-					send_numeric 433, args[1], 'Nickname is already in use.'
+				elsif !@server.validate_nick(args[0])
+					send_numeric 432, args[0], 'Erroneous Nickname: Illegal characters'
+				elsif @server.find_user args[0]
+					send_numeric 433, args[0], 'Nickname is already in use.'
 				else
-					self.nick = args[1]
+					self.nick = args[0]
 				end
 				
 			when 'away'
-				@away = args[1]
+				@away = args.first
 				
-				if args.size == 1
+				if args.empty?
 					send_numeric 305, 'You are no longer marked as being away'
 				else
 					send_numeric 306, 'You have been marked as being away'
 				end
 				
 			when 'oper'
-				name = args[1] && args[1].downcase
-				pass = args[2]
+				name = args.any? && args.shift.downcase
+				pass = args.shift
 				
 				ServerConfig.opers.each do |oper|
 					if oper['login'].downcase == name && oper['pass'] == pass
@@ -344,22 +344,22 @@ class IRCClient < LineConnection
 				end
 				
 			when 'kill'
-				target = @server.find_user args[1]
+				target = @server.find_user args[0]
 				
-				if args.size < 3
+				if args.size < 2
 					send_numeric 461, 'KILL', 'Not enough parameters'
 				elsif !@opered
 					send_numeric 481, 'Permission Denied- You do not have the correct IRC operator privileges'
 				elsif target
-					target.kill self, "Killed (#{@nick} (#{args[2]}))"
+					target.kill self, "Killed (#{@nick} (#{args[1]}))"
 				else
-					send_numeric 401, args[1], 'No such nick/channel'
+					send_numeric 401, args[0], 'No such nick/channel'
 				end
 				
 			when 'whois'
-				target = @server.find_user args[1]
+				target = @server.find_user args[0]
 				if !target
-					send_numeric 401, args[1], 'No such nick/channel'
+					send_numeric 401, args[0], 'No such nick/channel'
 					return
 				end
 				
@@ -390,8 +390,8 @@ class IRCClient < LineConnection
 				min = nil
 				max = nil
 				
-				if args[1]
-					args[1].split(',').each do |arg|
+				if args[0]
+					args[0].split(',').each do |arg|
 						if arg =~ /<([0-9]+)/
 							max = $1.to_i
 						elsif arg =~ />([0-9]+)/
@@ -423,8 +423,8 @@ class IRCClient < LineConnection
 				channel = nil
 				users = []
 				
-				if args[1]
-					channel = @server.find_channel args[1]
+				if args.any?
+					channel = @server.find_channel args[0]
 					users = channel.users if channel
 				else
 					users = @server.clients
@@ -450,7 +450,7 @@ class IRCClient < LineConnection
 					
 					send_numeric 352, this_channel, user.nick, user.host, @server.name, user.ident, prefix, "0 #{user.realname}"
 				end
-				send_numeric 315, (args[1] || '*'), 'End of /WHO list.'
+				send_numeric 315, (args[0] || '*'), 'End of /WHO list.'
 			
 			when 'version'
 				send_version true # detailed
@@ -465,14 +465,14 @@ class IRCClient < LineConnection
 				commit_suicide!
 				
 			when 'privmsg'
-				target = @server.find_channel(args[1]) || @server.find_user(args[1])
+				target = @server.find_channel(args[0]) || @server.find_user(args[0])
 				
 				if target.is_a? IRCChannel
-					target.message self, args[2]
+					target.message self, args[1]
 				elsif target.is_a? IRCClient
-					target.send path, :privmsg, target.nick, args[2]
+					target.send path, :privmsg, target.nick, args[1]
 				else
-					send_numeric 401, args[1], 'No such nick/channel'
+					send_numeric 401, args[0], 'No such nick/channel'
 				end
 				
 			#~ when 'invite'
@@ -492,108 +492,107 @@ class IRCClient < LineConnection
 				#~ end
 				
 			when 'notice'
-				target = @server.find_channel(args[1]) || @server.find_user(args[1])
+				target = @server.find_channel(args[0]) || @server.find_user(args[0])
 				
 				if target.is_a? IRCChannel
-					target.notice self, args[2]
+					target.notice self, args[1]
 				elsif target.is_a? IRCClient
-					target.send path, :notice, target.nick, args[2]
+					target.send path, :notice, target.nick, args[1]
 				else
-					send_numeric 401, args[1], 'No such nick/channel'
+					send_numeric 401, args[0], 'No such nick/channel'
 				end
 				
 			when 'join'
-				if args.size < 2 || args[1].size < 1
+				if args.empty? || args[0].size < 1
 					send_numeric 461, 'JOIN', 'Not enough parameters'
 				else
-					join args[1]
+					join args[0]
 				end
 				
 			when 'part'
-				channel = @server.find_channel args[1]
+				channel = @server.find_channel args[0]
 				if !channel
-					send_numeric 403, args[1], 'No such channel'
+					send_numeric 403, args[0], 'No such channel'
 				elsif channel.users.include? self
-					part channel, args[2] || 'Leaving'
+					part channel, args[1] || 'Leaving'
 				else
-					send_numeric 403, args[1], 'No such channel'
+					send_numeric 403, args[0], 'No such channel'
 				end
 				
 			when 'reload'
 				reload!
 				
 			when 'kick'
-				if args.size < 3
+				if args.size < 2
 					send_numeric 461, 'KICK', 'Not enough parameters'
 					return
 				end
 				
-				channel = @server.find_channel args[1]
-				target = @server.find_user args[2]
+				channel = @server.find_channel args[0]
+				target = @server.find_user args[1]
 				
 				if !channel
-					send_numeric 403, args[1], 'No such channel'
+					send_numeric 403, args[0], 'No such channel'
 				elsif !target
-					send_numeric 501, args[2], 'No such nick/channel'
+					send_numeric 501, args[1], 'No such nick/channel'
 				elsif !target.is_on(channel)
 					send_numeric 482, target.nick, channel.name, "They aren't on that channel"
 				elsif !is_op_on(channel)
 					send_numeric 482, channel.name, "You're not channel operator"
 				else
-					target.kicked_from channel, self, args[3] || @nick
+					target.kicked_from channel, self, args[2] || @nick
 				end
 				
 			when 'names'
-				channel = @server.find_channel args[1]
+				channel = @server.find_channel args[0]
 				send_names channel
 				
 			when 'topic'
-				channel = @server.find_channel args[1]
-				if args.size == 2
+				channel = @server.find_channel args[0]
+				if args.size < 2
 					send_topic channel, true # Detailed (send no-topic-set if no topic)
 				elsif channel.has_mode?('t') && !is_op_or_better_on(channel)
 					send_numeric 482, channel.name, "You're not channel operator"
 				else
-					channel.set_topic args[2], self
+					channel.set_topic args[1], self
 				end
 				
 			when 'mode'
 				# :Silicon.EighthBit.net 482 danopia #offtopic :You're not channel operator
 				# :Silicon.EighthBit.net 008 danopia :Server notice mask (+kcfvGqso)
 				
-				target = @server.find_channel(args[1]) || @server.find_user(args[1])
+				target = @server.find_channel(args[0]) || @server.find_user(args[0])
 				
 				if target.is_a? IRCChannel
-					if args.size == 2
+					if args.size < 2
 						send_modes target
 					else
-						change_chmode target, args[2], args[3..-1]
+						change_chmode target, args[1], args[2..-1]
 					end
 				elsif target.is_a? IRCClient
-					if args.size == 2
+					if args.size < 2
 						send_numeric 221, '+' + self.umodes
 					elsif target == self
-						change_umode args[2], args[3..-1]
+						change_umode args[1], args[2..-1]
 					else # someone else
 					end
 				else
-					send_numeric 401, args[1], 'No such nick/channel'
+					send_numeric 401, args[0], 'No such nick/channel'
 				end
 				
 			when 'quit'
-				close args[1] || 'Client quit'
+				close args[0] || 'Client quit'
 		
 			when 'pong' # do nothing
 			when 'ping'
-				target = args[1]
-				send @server.name, :pong, @server.name, target
+				send @server.name, :pong, @server.name, args[0]
 				
 			when 'userhost'
-				target = @server.find_user args[1]
+				target = @server.find_user args[0]
 				if target
 					send_numeric 302, "#{target.nick}=+#{target.ident}@#{target.ip}"
 				else
-					send_numeric 401, args[1], 'No such nick/channel'
+					send_numeric 401, args[0], 'No such nick/channel'
 				end
 				
 			else
