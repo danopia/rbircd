@@ -30,45 +30,45 @@ require 'eventmachine'
 require 'socket'
 
 class IRCConnection < EventMachine::Connection
-	attr_accessor :server, :client, :port, :ip
-	
-	def initialize server
-		super()
-		
-		@server = server
-		@client = IRCClient.new self
-		@buffer	= ''
-		
-		@server.socks << self
-		@server.clients << @client
+  attr_accessor :server, :client, :port, :ip
+
+  def initialize server
+    super()
+
+    @server = server
+    @client = IRCClient.new self
+    @buffer	= ''
+
+    @server.socks << self
+    @server.clients << @client
   end
-	
+
   def post_init
     sleep 0.25
     @port, @ip = Socket.unpack_sockaddr_in get_peername
     puts "Connected to #{@ip}:#{@port}"
   end
-		
-	def send_line params
-		params = params.join ' ' if params.is_a? Array
-		send_data "#{params.gsub("\n", '')}\n"
-	end
+
+  def send_line params
+    params = params.join ' ' if params.is_a? Array
+    send_data "#{params.gsub("\n", '')}\n"
+  end
 
   def receive_data data
     @buffer += data
     while @buffer.include? "\n"
-    	receive_line @buffer.slice!(0, @buffer.index("\n")+1).chomp
+      receive_line @buffer.slice!(0, @buffer.index("\n")+1).chomp
     end
   end
-  
+
   def receive_line line
-  	puts line
-  	@client.handle_packet line
+    puts line
+    @client.handle_packet line
   end
-  
+
   def unbind
-  	@client.close 'Client disconnected'
-  	puts "connection closed to #{@ip}:#{@port}"
-		@server.remove_sock self
+    @client.close 'Client disconnected'
+    puts "connection closed to #{@ip}:#{@port}"
+    @server.remove_sock self
   end
 end
