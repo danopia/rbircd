@@ -4,7 +4,7 @@
 # The name that the server goes by. Can actually resolve to the server
 # with DNS, but does not have to - just has to be a valid name. If
 # rbIRCd ever links, this will need to be unique.
-server-name: rbircd.danopia.net
+server-name: localhost.
 
 # The comment that is put next to this server in stuff like /whois, 
 # /links, etc. Will not need to be unique.
