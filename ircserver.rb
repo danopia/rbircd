@@ -47,7 +47,7 @@ class IRCServer
   end
 
   def remove_client client
-    remove_sock client.io
+    remove_sock client.conn
   end
   def remove_sock sock
     @socks.delete sock

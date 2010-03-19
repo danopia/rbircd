@@ -51,12 +51,12 @@ class IRCChannel
 		@mode_timestamp = Time.now
 	end
 	
-	def send_to_all msg
-		@users.each {|user| user.puts msg }
+	def send_to_all *args
+		@users.each {|user| user.send *args }
 	end
 	
-	def send_to_all_except nontarget, msg
-		@users.each {|user| user.puts msg if user != nontarget }
+	def send_to_all_except nontarget, *args
+		@users.each {|user| user.send *args if user != nontarget }
 	end
 	
 	def modes=(modes)
@@ -70,25 +70,24 @@ class IRCChannel
 	end
 	
 	def message(sender, message)
-		send_to_all_except sender, ":#{sender.path} PRIVMSG #{@name} :#{message}"
+		send_to_all_except sender, sender.path, :privmsg, @name, message
 	end
 	def notice(sender, message)
-		send_to_all_except sender, ":#{sender.path} NOTICE #{@name} :#{message}"
+		send_to_all_except sender, sender.path, :notice, @name, message
 	end
 	
 	def join client
 		@users << client
-		send_to_all ":#{client.path} JOIN :#{@name}"
+		send_to_all client.path, :join, @name
 	end
 	
 	def part client, message='Leaving'
-		send_to_all ":#{client.path} PART #{@name} :#{message}"
+		send_to_all client.path, :part, @name, message
 		remove client
 	end
 	
 	def kick client, kicker, reason=nil
-		reason &&= " :#{reason}" # prepend ' :' to reason unless it is nil
-		send_to_all ":#{kicker} KICK #{@name} #{client.nick}#{reason}"
+		send_to_all kicker, :kick, @name, client.nick, reason
 		remove client
 	end
 	
@@ -106,7 +105,7 @@ class IRCChannel
 		@topic = topic
 		@topic_timestamp = Time.now
 		@topic_author = author.nick
-		send_to_all ":#{author} TOPIC #{@name} :#{topic}"
+		send_to_all author, :topic, @name, topic
 	end
 	
 	def has_mode? mode
