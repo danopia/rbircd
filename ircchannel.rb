@@ -33,7 +33,7 @@ class IRCChannel
 	attr_reader :topic, :topic_timestamp
 	attr_accessor :topic_author
 	
-	def initialize(name)
+	def initialize name
 		@name = name
 		@users = []
 		
@@ -48,43 +48,33 @@ class IRCChannel
 		@excepts = []
 		
 		@modes = 'ns'
-		@mode_timestamp = Time.now.to_i
-		
-		@topic = nil
-		@topic_author = nil
-		@topic_timestamp = nil
+		@mode_timestamp = Time.now
 	end
 
-	def self.find(name)
-		return name if name.is_a?(IRCChannel)
+	def self.find name
+		return name if name.is_a? IRCChannel
 		
 		name = name.downcase
-		$server.channels.each do |channel|
-			return channel if channel.name.downcase == name
-		end
-		nil
+		$server.channels.find {|channel| channel.name.downcase == name }
 	end
 
-	def self.find_or_create(name)
-		return name if name.is_a?(IRCChannel)
+	def self.find_or_create name
+		return name if name.is_a? IRCChannel
 		
 		channel = IRCChannel.find name
 		return channel if channel
 		
-		channel = IRCChannel.new(name)
+		channel = IRCChannel.new name
 		$server.channels << channel
 		channel
 	end
 	
-	def send_to_all(msg)
-		@users.each do |user|
-			user.puts msg
-		end
+	def send_to_all msg
+		@users.each {|user| user.puts msg }
 	end
-	def send_to_all_except(nontarget, msg)
-		@users.each do |user|
-			user.puts msg unless user == nontarget
-		end
+	
+	def send_to_all_except nontarget, msg
+		@users.each {|user| user.puts msg if user != nontarget }
 	end
 	
 	def modes=(modes)
@@ -104,55 +94,52 @@ class IRCChannel
 		send_to_all_except sender, ":#{sender.path} NOTICE #{@name} :#{message}"
 	end
 	
-	def join(client)
+	def join client
 		@users << client
 		send_to_all ":#{client.path} JOIN :#{@name}"
 	end
 	
-	def part(client, message='Leaving')
+	def part client, message='Leaving'
 		send_to_all ":#{client.path} PART #{@name} :#{message}"
 		remove client
 	end
 	
-	def kick(client, kicker, reason = nil)
+	def kick client, kicker, reason=nil
 		reason &&= " :#{reason}" # prepend ' :' to reason unless it is nil
 		send_to_all ":#{kicker} KICK #{@name} #{client.nick}#{reason}"
 		remove client
 	end
 	
-	def remove(client)
+	def remove client
 		[@users, @owners, @protecteds, @ops, @halfops, @voices].each do |list|
-			list.delete(client)
+			list.delete client
 		end
 		
-		destroy('Channel empty') if empty?
+		destroy 'Channel empty' if empty?
 	end
 	
 	def empty?
 		@users.empty?
 	end
 	
-	def destroy(reason='OM NOM NOM')
+	def destroy reason='OM NOM NOM'
 		@users.each do |user|
 			user.kicked_from self, $server.name, reason
 		end
 		$server.channels.delete self
 	end
 	
-	def set_topic(topic, author)
+	def set_topic topic, author
 		@topic = topic
 		@topic_timestamp = Time.now
 		@topic_author = author.nick
 		send_to_all ":#{author} TOPIC #{@name} :#{topic}"
 	end
 	
-	def has_mode?(mode)
+	def has_mode? mode
 		@modes.include? mode
 	end
-	def has_any_mode?(modes)
-		@modes.split('').each do |mode|
-			return true if has_mode?(mode)
-		end
-		false
+	def has_any_mode? modes
+		@modes.split('').select {|mode| has_mode?(mode) }.any?
 	end
 end

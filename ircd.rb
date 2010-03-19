@@ -37,27 +37,28 @@ def reload!
 	load 'ircchannel.rb'
 	load 'ircclient.rb'
 	load 'ircconnection.rb'
+	load 'lineconnection.rb'
 end
 reload!
 
 class ServerConfig
-	def self.load(filename)
-		@yaml = YAML.load(File.open(filename))
+	def self.load filename
+		@yaml = YAML.load File.open(filename)
 	end
 	
 	# Shorter way to access data
-	def self.method_missing(m, *args, &blck)
-		raise ArgumentError, "wrong number of arguments (#{args.length} for 0)" if args.length > 0
-		raise NoMethodError, "undefined method '#{m}' for #{self}" unless @yaml.has_key?(m.to_s.gsub('_', '-'))
+	def self.method_missing m, *args, &blck
+		super unless @yaml.has_key?(m.to_s.gsub('_', '-'))
+		raise ArgumentError, "wrong number of arguments (#{args.length} for 0)" if args.any?
 		@yaml[m.to_s.gsub('_', '-')]
 	end
 end
 
 # Load the config
-ServerConfig.load('rbircd.conf')
+ServerConfig.load 'rbircd.conf'
 
 # Daemons.daemonize
-$server = IRCServer.new(ServerConfig.server_name)
+$server = IRCServer.new ServerConfig.server_name
 
 EventMachine::run do
 	ServerConfig.listens.each do |listener|

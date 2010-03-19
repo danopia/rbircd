@@ -28,36 +28,38 @@
 class IRCServer
   attr_accessor :debug, :clients, :channels, :name, :socks, :running
 
-  def initialize(name=nil)
-    @debug = true
+  def initialize name=nil
+    @name = name
+    
     @clients = []
     @channels = []
-    @name = name
     @socks = []
+    
+    @debug = true
     @running = false
   end
 
-  def log(msg)
-    puts "[#{Time.new.ctime}] %s" % msg
+  def log msg
+    puts "[#{Time.new.ctime}] #{msg}"
   end
-  def log_nick(nick, msg)
-    log "#{@host}:#{@port} #{nick}\t%s" % msg
+  def log_nick nick, msg
+    log "#{@host}:#{@port} #{nick}\t#{msg}"
   end
 
-  def remove_client(client)
+  def remove_client client
     remove_sock client.io
   end
-  def remove_sock(sock)
+  def remove_sock sock
     @socks.delete sock
     @clients.delete sock.client
   end
 
   # Helper socks for client instances to use
 
-  def validate_nick(nick)
+  def validate_nick nick
     nick =~ /^[a-zA-Z\[\]_|`^][a-zA-Z0-9\[\]_|`^]{0,#{ServerConfig.max_nick_length.to_i - 1}}$/
   end
-  def validate_chan(channel)
+  def validate_chan channel
     channel =~ /^\#[a-zA-Z0-9`~!@\#$%^&*\(\)\'";|}{\]\[.<>?]{0,#{ServerConfig.max_channel_length.to_i - 2}}$/
   end
 end
