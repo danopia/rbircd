@@ -36,7 +36,6 @@ def reload!
 	load 'ircserver.rb'
 	load 'ircchannel.rb'
 	load 'ircclient.rb'
-	load 'ircconnection.rb'
 	load 'lineconnection.rb'
 end
 reload!

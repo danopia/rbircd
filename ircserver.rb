@@ -47,13 +47,13 @@ class IRCServer
   end
 
   def remove_client client
-    @users.delete client.nick if client.registered?
+    @users.delete client.nick.downcase if client.registered?
     @clients.delete client
   end
   
   def find_user nick
     return nick if nick.is_a? IRCClient
-    @clients[nick.downcase]
+    @users[nick.downcase]
   end
   
   def find_channel name

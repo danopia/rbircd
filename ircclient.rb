@@ -47,6 +47,7 @@ class IRCClient < LineConnection
 		@modified_at = Time.now
 		
 		@port, @ip = Socket.unpack_sockaddr_in get_peername
+		@host = @ip
 		
 		send @server.name, :notice, 'AUTH', '*** Looking up your hostname...'
 		send @server.name, :notice, 'AUTH', '*** Found your hostname'
@@ -306,7 +307,7 @@ class IRCClient < LineConnection
 				end
 		
 			when 'nick'
-				if args.empty? || args[1].size < 1
+				if args.empty? || args[0].size < 1
 					send_numeric 431, 'No nickname given'
 				elsif !@server.validate_nick(args[0])
 					send_numeric 432, args[0], 'Erroneous Nickname: Illegal characters'
@@ -600,8 +601,8 @@ class IRCClient < LineConnection
 		end
 	
 	rescue => ex
+		puts ex.class, ex.message, ex.backtrace
 		skill "Server-side #{ex.class}: #{ex.message}"
-		p ex.class, ex.message, ex.backtrace
   end
   
   ########################################
