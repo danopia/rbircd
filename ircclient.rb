@@ -138,10 +138,16 @@ class IRCClient < LineConnection
 			send @server.name, :notice, @nick, 'libcurl/7.19.4 GnuTLS/2.6.6 zlib/1.2.3 c-ares/1.6.0 libssh2/0.18'
 		end
 		
-		# TODO: Make this construct itself from a Hash
-		send_numeric '005', *("NAMESX SAFELIST HCN MAXCHANNELS=#{ServerConfig.max_channels} CHANLIMIT=#:#{ServerConfig.max_channels_per_user} MAXLIST=b:60,e:60,I:60 NICKLEN=#{ServerConfig.max_nick_length} CHANNELLEN=#{ServerConfig.max_channel_length} TOPICLEN=#{ServerConfig.max_topic_length} KICKLEN=#{ServerConfig.max_kick_length} AWAYLEN=#{ServerConfig.max_away_length} MAXTARGETS=#{ServerConfig.max_targets} WALLCHOPS".split + ['are supported by this server'])
-		send_numeric '005', *("WATCH=128 SILENCE=15 MODES=12 CHANTYPES=# PREFIX=(qaohv)~&@%+ CHANMODES=beI,kfL,lj,psmntirRcOAQKVCuzNSMTG NETWORK=#{ServerConfig.network_name.gsub(' ', '-')} CASEMAPPING=ascii EXTBAN=~,cqnr ELIST=MNUCT STATUSMSG=~&@%+ EXCEPTS INVEX".split + ['are supported by this server'])
-		send_numeric '005', 'CMDS=KNOCK,MAP,DCCALLOW,USERIP', 'are supported by this server'
+		features = ServerConfig.features.clone
+		
+		features.each_slice(13) do |slice| # Why 13? Ask freenode
+			slice.map! do |(key, value)|
+				(value == true) ? key.upcase : "#{key.upcase}=#{value}"
+			end
+			
+			slice << 'are supported by this server'
+			send_numeric '005', *slice
+		end
 	end
 	
 	def send_lusers
@@ -790,7 +796,7 @@ class IRCClient < LineConnection
 		@umodes.include? umode
 	end
 	def has_any_umode?(umodes)
-		umodes.split('').select {|umode| has_umode?(umode) }.any?
+		umodes.chars.select {|umode| has_umode?(umode) }.any?
 	end
 	
 	def to_s

@@ -74,3 +74,49 @@ opers:
   - login: phil
     pass: blah
     perms: gzline
+
+# Numeric 005 responses:
+features:
+  namesx: true # Extended /NAMES information is available
+  safelist: true # LIST is sent in chunks to prevent SendQ exceeding
+  maxchannels: 20 # max-channels, replaced with chanlimit
+  chanlimit: "#:20" # max channels per prefix; #&!:10,+:20
+  maxlist: "b:60,e:60,I:60" # replaces maxbans; beI:30
+  nicklen: 30 # max-nick-length
+  channellen: 32 # max-channel-length
+  topiclen: 307 # max-topic-length
+  kicklen: 307 # max-kick-length
+  awaylen: 307 # max-away-length
+  maxtargets: 20 # max-targets; PRIVMSG, NOTICE targets; 4 in hybrid
+  wallchops: true # NOTICE @#channel; replaced by STATUSMSG
+  watch: 128 # max number of WATCHes allowed
+  silence: 15 # SILENCE command list size
+  modes: 12 # max mode changes per command
+  chantypes: "#" # #&!+
+  prefix: "(qaohv)~&@%+" # (modes)prefixes
+  chanmodes: "beI,kfL,lj,psmntirRcOAQKVCuzNSMTG" # list, always param, param when set, never param
+  network: NinthBit # network-name; EFnet IRCNet UnderNet DALnet
+  casemapping: ascii # or rfc1459 ( {}|~ lowercase of []\^ ); strict-rfc1459 (~^ are different)
+  extban: "~,cqnr" # prefix[.],types[a-z]; Specifies extended bans supported.. `Prefix` specifies the symbol all extbans prefix with and `Types` specifies what extbans are available.
+  elist: MNUCT # LIST search extensions (mask, !mask, usercount(<>), created at(C<,C>), topic (T< T>)
+  statusmsg: "~&@%+" # PRIVMSG ~#channel; from PREFIX
+  excepts: true # EXCEPTS=e
+  invex: true # INVEX=I
+  cmds: "KNOCK,MAP,DCCALLOW,USERIP" # Defines commands that the client software should know exists for usage
+
+  # These aren't used but I'll doc them anyway
+  # hcn: true # Hybrid Connect Notice protocol (whatever that is). Has to do with "Client connecting" messages I think
+  # chidlen: 5 # RFC2811; !channels; replaced by IDCHAN
+  # idchan: "!:5" # RFC2811; !channels
+  # wallvoices: true # Notice to +#channel goes to all voiced persons
+  # whox: true # WHOX protocol used by WHO command
+  # callerid: true # server-side ignores; umode +g; <http://www.ircd-hybrid.org/docs/modeg.txt>
+  # language: '2,en,i-klingon' # [Experimental] LANGUAGE command <http://cvs.sf.net/cgi-bin/viewcvs.cgi/kineircd/kineircd/doc/LANGUAGE?rev=HEAD>
+  # rfc2812: true # <http://www.faqs.org/rfcs/rfc2812.html>
+  # knock: true # KNOCK exists. This is in :cmds
+  # vchans: true # virtual channels supported <http://www.ircd-hybrid.org/docs/vchans.txt>
+  # userip: true # USERIP command exists. This is in :cmds
+  # cprivmsg: true # CPRIVMSG command; CPRIVMSG channel nick,nick2,... :text; why not just PRIVMSG with multitargets?
+  # cnotice: true # CNOTICE command; CNOTICE channel nick,nick2,... :text; why not just NOTICE with multitargets?
+  # penalty: true # Server gives extra penalty to some commands instead of the normal 2 seconds per message and 1 second for every 120 bytes in a message.
+  # fnc: true # server may force nick changes without the client asking
