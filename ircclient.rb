@@ -612,8 +612,8 @@ class IRCClient < LineConnection
   ########################################
   
   def change_umode(changes_str, params=[])
-  	valid = 'oOaANCdghipqrstvwxzBGHRSTVW'.split('')
-  	str = parse_mode_string(changes_str, params) do |add, char, param|
+  	valid = 'oOaANCdghipqrstvwxzBGHRSTVW'
+  	str = parse_mode_string(changes_str, valid) do |add, char|
   		next false unless valid.include? char
   		if @umodes.include?(char) ^ !add
   			# Already set
@@ -625,7 +625,7 @@ class IRCClient < LineConnection
   		end
   		true
   	end
-  	send path, :mode, @nick, str if str && str.size > 0
+  	send path, :mode, @nick, *str if str.any?
   	str
   end
   
@@ -641,99 +641,113 @@ class IRCClient < LineConnection
 		#>> :Silicon.EighthBit.net 349 danopia ##meep :End of Channel Exception List
 		
 		#>> :hubbard.freenode.net 482 danopia` ##GPT :You need to be a channel operator to do that
-  	valid = 'vhoaqbceIfijklmnprstzACGMKLNOQRSTVu'.split('')
-  	listsA = 'vhoaq'.split('')
-  	listsB = 'beI'.split('')
-  	need_params = 'vhoaqbeIfjklL'.split('')
-  	str = parse_mode_string(changes_str, params) do |add, char, param|
-  		next false unless valid.include? char
-  		next :need_param if need_params.include?(char) && !param
-  		if listsA.include? char
-				list = nil
-				
-				case char
-					when 'q'; list = channel.owners; param = channel.users.find{|u| u.nick.downcase == param.downcase}
-					when 'a'; list = channel.protecteds; param = channel.users.find{|u| u.nick.downcase == param.downcase}
-					when 'o'; list = channel.ops; param = channel.users.find{|u| u.nick.downcase == param.downcase}
-					when 'h'; list = channel.halfops; param = channel.users.find{|u| u.nick.downcase == param.downcase}
-					when 'v'; list = channel.voices; param = channel.users.find{|u| u.nick.downcase == param.downcase}
-					
-					when 'b'; list = channel.bans
-					when 'e'; list = channel.excepts
-					when 'I'; list = channel.invex
+		
+  	valid = 'vhoaqbceIfijklmnprstzACGMKLNOQRSTVu'
+  	
+  	str = parse_mode_string(changes_str, valid) do |add, char|
+  	
+  		if 'vhoaq'.include? char
+				list = case char
+					when 'q'; channel.owners
+					when 'a'; channel.protecteds
+					when 'o'; channel.ops
+					when 'h'; channel.halfops
+					when 'v'; channel.voices
 				end
+				
+				param = params.shift
+				next false unless param
+				param.downcase!
+				
+				param = channel.users.find {|u| u.nick.downcase == param }
+				next false unless param
 				next false if list.include?(param) ^ !add
+				
 				if add
 					list << param
 				else
 					list.delete param
 				end
-			elsif listsB.include? char
-				list = nil
-				to_set = nil
 				
-				case char
-					when 'b'; list = channel.bans
-					when 'e'; list = channel.excepts
-					when 'I'; list = channel.invex
+				next param.nick
+				
+			elsif 'beI'.include? char # TODO: Allow listing
+				list = case char
+					when 'b'; channel.bans
+					when 'e'; channel.excepts
+					when 'I'; channel.invex
 				end
+				
+				param = params.shift
+				next false unless param
 				next false if list.include?(param) ^ !add
+				
 				if add
 					list << param
 				else
 					list.delete param
 				end
+				
+				next param
+				
+  		# Already set
   		elsif channel.modes.include?(char) ^ !add
-  			# Already set
+  			
+  			params.shift if 'fjklL'.include? char
+  			
    			next false
+   			
   		elsif add
+  			params.shift if 'fjklL'.include? char
+  			
 				channel.modes << char
+				
 			else
+  			params.shift if 'fjklL'.include? char
+  			
 				channel.modes = channel.modes.delete char
   		end
+  		
   		true
   	end
-  	channel.send_to_all path, :mode, channel.name, str if str && str.size > 0
+  	channel.send_to_all path, :mode, channel.name, *str if str.any?
   	str
   end
   
-  def parse_mode_string(mode_str, params=[])
-  	add = true
-  	additions = []
-  	deletions = []
-  	new_params = []
-  	mode_str.split('').each do |mode_chr|
+  def parse_mode_string mode_str, valid_modes
+  	set = true
+  	
+  	results = []
+  	args = []
+  	
+  	mode_str.each_char do |mode_chr|
   		if mode_chr == '+'
-  			add = true
+  			set = true
   		elsif mode_chr == '-'
-  			add = false
+  			set = false
   		else
-  			ret = yield(add, mode_chr, nil)
-  			if ret == :need_param && params[0]
-  				new_params << params[0]
-  				ret = yield(add, mode_chr, params.shift || :none)
-  			end
-  			if !ret || ret == :need_param
-				elsif add
-					if deletions.include?(mode_chr)
-						deletions.delete(mode_chr)
-					else
-						additions << mode_chr unless additions.include?(mode_chr)
-					end
-				else
-					if additions.include?(mode_chr)
-						additions.delete(mode_chr)
-					else
-						deletions << mode_chr unless deletions.include?(mode_chr)
-					end
-				end
+  			ret = valid_modes.include?(mode_chr) && yield(set, mode_chr)
+  			next unless ret
+  			
+				results << [set, mode_chr]
+				args << ret unless ret == true
   		end
   	end
-  	new_str = ''
-  	new_str << '+' + additions.join('') unless additions.empty?
-  	new_str << '-' + deletions.join('') unless deletions.empty?
-  	new_str << ' ' + new_params.join(' ') unless new_params.empty?
-  	new_str
+  	
+  	mode_str = ''
+  	set = nil
+  	
+  	results.each do |(setter, mode)|
+			if setter != set
+				mode_str << (setter ? '+' : '-')
+				set = setter
+			end
+			
+			mode_str << mode
+		end
+		
+		args.unshift mode_str
+		args
   end
   
   def is_on(channel)
