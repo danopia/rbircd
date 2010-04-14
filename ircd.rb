@@ -66,8 +66,10 @@ EventMachine::run do
 	end
 	
 	EventMachine::add_periodic_timer 60 do
-		server.socks.each do |conn|
-			conn.send_line "PING :#{server.name}"
+		server.clients.each do |conn|
+			conn.send nil, :ping, server.name
 		end
 	end
+	
+	puts "Ready."
 end

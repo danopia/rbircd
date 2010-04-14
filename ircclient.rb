@@ -77,7 +77,7 @@ class IRCClient < LineConnection
 		return if @dead
 		
 		updated_users = [self]
-		self.channels.each_value do |channel|
+		self.channels.each do |channel|
 			channel.users.each do |user|
 				next if updated_users.include? user
 				user.send path, :quit, reason
@@ -104,9 +104,9 @@ class IRCClient < LineConnection
 	
 	def send from, *args
 		args = args.clone # hopefully don't damage the passed array
-		args[0] = args[0].to_s.upcase
+		args.unshift args.shift.to_s.upcase
 		args.unshift ":#{from}" if from
-		args.push ":#{args.pop}" if args.last.include?(' ')
+		args.push ":#{args.pop}" if args.last.to_s.include?(' ')
 		
 		send_line args.join(' ')
 	end
@@ -652,11 +652,11 @@ class IRCClient < LineConnection
 				list = nil
 				
 				case char
-					when 'q'; list = channel.owners; param = IRCClient.find(param)
-					when 'a'; list = channel.protecteds; param = IRCClient.find(param)
-					when 'o'; list = channel.ops; param = IRCClient.find(param)
-					when 'h'; list = channel.halfops; param = IRCClient.find(param)
-					when 'v'; list = channel.voices; param = IRCClient.find(param)
+					when 'q'; list = channel.owners; param = channel.users.find{|u| u.nick.downcase == param.downcase}
+					when 'a'; list = channel.protecteds; param = channel.users.find{|u| u.nick.downcase == param.downcase}
+					when 'o'; list = channel.ops; param = channel.users.find{|u| u.nick.downcase == param.downcase}
+					when 'h'; list = channel.halfops; param = channel.users.find{|u| u.nick.downcase == param.downcase}
+					when 'v'; list = channel.voices; param = channel.users.find{|u| u.nick.downcase == param.downcase}
 					
 					when 'b'; list = channel.bans
 					when 'e'; list = channel.excepts

@@ -47,7 +47,7 @@ class IRCServer
   end
 
   def remove_client client
-    @users.delete client.nick.downcase if client.registered?
+    @users.delete client.nick.downcase if client.is_registered?
     @clients.delete client
   end
   
@@ -58,7 +58,7 @@ class IRCServer
   
   def find_channel name
     return name if name.is_a? IRCChannel
-    @channels[nick.downcase]
+    @channels[name.downcase]
   end
   
   def find_or_create_channel name
