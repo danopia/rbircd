@@ -77,6 +77,7 @@ class IRCChannel
 	end
 	
 	def join client
+		@ops << client if empty?
 		@users << client
 		send_to_all client.path, :join, @name
 	end

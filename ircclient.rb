@@ -142,7 +142,7 @@ class IRCClient < LineConnection
 		
 		features.each_slice(13) do |slice| # Why 13? Ask freenode
 			slice.map! do |(key, value)|
-				(value == true) ? key.upcase : "#{key.upcase}=#{value}"
+				(value == true) ? key.upcase"#{key.upcase}=#{value}"
 			end
 			
 			slice << 'are supported by this server'
@@ -336,18 +336,22 @@ class IRCClient < LineConnection
 				name = args.any? && args.shift.downcase
 				pass = args.shift
 				
-				ServerConfig.opers.each do |oper|
-					if oper['login'].downcase == name && oper['pass'] == pass
-						@opered = true
-						break
-					end
+				@oline = ServerConfig.opers.find do |oper|
+					oper['login'].downcase == name && oper['pass'] == pass
 				end
 				
-				if @opered
+				if @oline
+					@opered = true
+					
 					send_numeric 381, 'You have entered... the Twilight Zone!'
 					join ServerConfig.oper_channel if ServerConfig.oper_channel
+					
+					#~ >> :jade.ninthbit.net 396 danopia netadmin.ninthbit.net :is now your displayed host
+					#~ >> :jade.ninthbit.net MODE danopia :+o
+					#~ >> :jade.ninthbit.net 381 danopia :You are now a NetAdmin
 				else
 					send_numeric 491, 'Only few of mere mortals may try to enter the twilight zone'
+					# >> :jade.ninthbit.net 491 danopia :Invalid oper credentials
 				end
 				
 			when 'kill'
@@ -369,6 +373,13 @@ class IRCClient < LineConnection
 					send_numeric 401, args[0], 'No such nick/channel'
 					return
 				end
+				
+				#~ >> :anthony.freenode.net 671 danopia danopia :is using a secure connection
+				#~ >> :anthony.freenode.net 330 danopia danopia danopia :is logged in as
+				#~ >> :jade.ninthbit.net 335 danopia danopia :is a bot on NinthBit
+				#~ >> :jade.ninthbit.net 313 danopia danopia :is a NetAdmin on NinthBit
+				#~ >> :chat.combatcorps.com 313 danopia danopia :is a Network Administrator
+				#~ >> :chat.combatcorps.com 310 danopia danopia :is available for help.
 				
 				send_numeric 311, target.nick, target.ident, target.host, '*', target.realname
 				send_numeric 378, target.nick, "is connecting from *@#{target.ip} #{target.ip}"
