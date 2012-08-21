@@ -11,7 +11,7 @@ I plan to implement various [IRCv3](http://ircv3.atheme.org/) features, even
 before they are official, in rbIRCd; in a way, this is going to be a prototyping
 server for IRCv3. I'll probably use a feature branch though, don't worry.
 
-Written by [danopia](http://danopia.net).
+Written by [danopia](http://danopia.net) for fun and science.
 
 Implemented commands:
 * NICK
