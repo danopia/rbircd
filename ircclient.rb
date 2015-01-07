@@ -142,7 +142,7 @@ class IRCClient < LineConnection
 		
 		features.each_slice(13) do |slice| # Why 13? Ask freenode
 			slice.map! do |(key, value)|
-				(value == true) ? key.upcase"#{key.upcase}=#{value}"
+				(value == true) ? key.upcase : "#{key.upcase}=#{value}"
 			end
 			
 			slice << 'are supported by this server'
