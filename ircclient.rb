@@ -538,7 +538,8 @@ class IRCClient < LineConnection
 				end
 				
 			when 'reload'
-				reload!
+			        if @opered
+			        	reload!
 				
 			when 'kick'
 				if args.size < 2
