@@ -42,7 +42,7 @@ class LineConnection < EventMachine::Connection
   end
 
   def send_line line
-    send_data "#{line.gsub("\n", '')}\n"
+    send_data "#{line.gsub("\n", '')}\r\n"
   end
 
   def receive_data data
