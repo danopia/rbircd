@@ -44,4 +44,3 @@ Soon to be done:
 * INVITE
 * AWAY
 * IRCv3 *(TBD which parts)*
-

@@ -108,6 +108,7 @@ class IRCClient < LineConnection
 		args.unshift ":#{from}" if from
 		args.push ":#{args.pop}" if args.last.to_s.include?(' ')
 
+    puts '>>> ' + args.join(' ') if @server.debug
 		send_line args.join(' ')
 	end
 
@@ -283,7 +284,7 @@ class IRCClient < LineConnection
 	end
 
   def receive_line line
-		puts line if @server.debug
+		puts '<<< ' + line if @server.debug
   	@modified_at = Time.now
 
 		# Parse as per the RFC
@@ -539,7 +540,7 @@ class IRCClient < LineConnection
 
 			when 'reload'
         reload! if @opered
-				
+
 			when 'kick'
 				if args.size < 2
 					send_numeric 461, 'KICK', 'Not enough parameters'

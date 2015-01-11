@@ -1,9 +1,9 @@
 # Copyright (c) 2009 Daniel Danopia
 # All rights reserved.
-# 
+#
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
-# 
+#
 # * Redistributions of source code must retain the above copyright notice,
 #   this list of conditions and the following disclaimer.
 # * Redistributions in binary form must reproduce the above copyright notice,
@@ -12,7 +12,7 @@
 # * Neither the name of Danopia nor the names of its contributors may be used
 #   to endorse or promote products derived from this software without specific
 #   prior written permission.
-# 
+#
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 # AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 # IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -30,11 +30,11 @@ class IRCServer
 
   def initialize name=nil
     @name = name
-    
+
     @users = {}
     @clients = []
     @channels = {}
-    
+
     @debug = true
     @running = false
   end
@@ -50,22 +50,22 @@ class IRCServer
     @users.delete client.nick.downcase if client.is_registered?
     @clients.delete client
   end
-  
+
   def find_user nick
     return nick if nick.is_a? IRCClient
     @users[nick.downcase]
   end
-  
+
   def find_channel name
     return name if name.is_a? IRCChannel
     @channels[name.downcase]
   end
-  
+
   def find_or_create_channel name
     return name if name.is_a? IRCChannel
     @channels[name.downcase] ||= IRCChannel.new name
   end
-  
+
   def destroy_channel channel, reason='OM NOM NOM'
     channel.users.each do |user|
       user.kicked_from channel, @name, reason

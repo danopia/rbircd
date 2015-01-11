@@ -6,7 +6,7 @@
 # rbIRCd ever links, this will need to be unique.
 server-name: localhost.
 
-# The comment that is put next to this server in stuff like /whois, 
+# The comment that is put next to this server in stuff like /whois,
 # /links, etc. Will not need to be unique.
 server-desc: Ruby IRCd
 
@@ -24,7 +24,7 @@ listens:
   - interface: 0.0.0.0
     port: 6667
     ssl: no
-    
+
   - interface: 127.0.0.1
     port: 1337
     ssl: no
@@ -46,7 +46,7 @@ max-channels-per-user: 10
 max-nick-length: 30
 
 # Maximum channel length
-max-channel-length: 32 
+max-channel-length: 32
 
 # Maximum topic message length
 max-topic-length: 307
@@ -70,7 +70,7 @@ opers:
   - login: bob
     pass: foobar
     perms: gzline, gline, kline, zline, override
-    
+
   - login: phil
     pass: blah
     perms: gzline
