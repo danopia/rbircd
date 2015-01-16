@@ -542,7 +542,7 @@ class IRCClient < LineConnection
 			        	send_numeric 382, 'Rehashing'
 			        	reload!
 			        else
-			        	send_numeric 481, 'Permission Denied - You're not an IRC operator'
+			        	send_numeric 481, 'Permission Denied - You\'re not an IRC operator'
 			        end
 				
 			when 'kick'
